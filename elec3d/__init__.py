@@ -12,7 +12,7 @@ outside FreeCAD; ``elec3d.builder`` and ``elec3d.commands`` need FreeCAD.
 
 import os
 
-__version__ = "0.19.0"
+__version__ = "0.20.0"
 
 PREF_PATH = "User parameter:BaseApp/Preferences/Mod/Elec3D"
 

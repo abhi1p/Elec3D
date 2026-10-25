@@ -21,7 +21,7 @@ from . import __version__, PREF_PATH
 from . import layers as layermod
 from . import theme as thememod
 from .options import DEFAULT_SIDEBAR_ORDER, normalize_sidebar_order
-from .design import LayerStack
+from .design import LayerStack, box_margins
 from . import boardsolid as boardsolidmod
 from .boardsolid import BoardSolid, BoardSolidError
 from .drc import DesignRules, RULE_LABELS
@@ -862,6 +862,7 @@ class Viewer2D(QtWidgets.QWidget):
         self._history_replaying = False
         self._updating_model_adjust = False
         self._model_adjust_edit_before = None
+        self._box_margin_edit_before = None
         self._auto_aligning_models = False
         # 3D export choices persist for the viewer session so repeated exports
         # only need a destination click, matching the reference web app.
@@ -2213,6 +2214,30 @@ class Viewer2D(QtWidgets.QWidget):
         self.model_display_combo.activated.connect(self._on_model_display_combo)
         self.sec_model_adjust.add(ControlRow("show as", self.model_display_combo))
 
+        # Clearance around the bounding box: one value for the top face, one
+        # for the four sides.  The underside never moves.
+        self.box_margin_row = QtWidgets.QWidget()
+        self.box_margin_row.setMinimumWidth(0)
+        self.box_margin_row.setSizePolicy(SIZE_IGNORED, SIZE_PREFERRED)
+        bm_layout = QtWidgets.QVBoxLayout(self.box_margin_row)
+        bm_layout.setContentsMargins(0, 0, 0, 0)
+        bm_layout.setSpacing(2)
+        self.box_margin_spins = {}
+        for key, label, tip in (
+                ("top", "box top", "Extra height added above the component's bounding box"),
+                ("side", "box sides", "Extra clearance added on all four sides of the bounding box")):
+            spin = NoWheelDoubleSpinBox()
+            spin.setDecimals(3); spin.setRange(0.0, 100.0); spin.setSingleStep(0.1)
+            spin.setMinimumWidth(0); spin.setMaximumWidth(96)
+            spin.setSizePolicy(SIZE_EXPANDING, SIZE_FIXED)
+            spin.setToolTip(tip + " (not below it). Used for export too.")
+            spin.valueChanged.connect(lambda value, k=key: self._on_box_margin_live(k, value))
+            spin.editingFinished.connect(self._commit_box_margin_edit)
+            self.box_margin_spins[key] = spin
+            bm_layout.addWidget(ControlRow(label, spin, "mm"))
+        self.box_margin_row.hide()
+        self.sec_model_adjust.add(self.box_margin_row)
+
         self.model_adjust_mode = NoWheelComboBox()
         self.model_adjust_mode.addItem("Auto", "auto")
         self.model_adjust_mode.addItem("Manual", "manual")
@@ -2834,6 +2859,7 @@ class Viewer2D(QtWidgets.QWidget):
                                      {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": str(entry.get("model_adjust_mode", "auto")),
                 "model_display": str(entry.get("model_display", "model")),
+                "box_margin": dict(entry.get("box_margin") or {}),
             })
 
         netlist = None
@@ -2945,6 +2971,7 @@ class Viewer2D(QtWidgets.QWidget):
             "model_adjust": {"x": 0.0, "y": 0.0, "z": 0.0},
             "model_adjust_mode": "auto",
             "model_display": "model",
+            "box_margin": {},
         }
         self._entries.append(entry)
         self._apply_design_layers()
@@ -3158,6 +3185,7 @@ class Viewer2D(QtWidgets.QWidget):
                                      {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
                 "model_display": entry.get("model_display", "model"),
+                "box_margin": dict(entry.get("box_margin") or {}),
             })
 
         center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
@@ -3966,6 +3994,7 @@ class Viewer2D(QtWidgets.QWidget):
                                          {"x": 0.0, "y": 0.0, "z": 0.0})
             entry["model_adjust_mode"] = saved.get("model_adjust_mode", "auto")
             entry["model_display"] = saved.get("model_display", "model")
+            entry["box_margin"] = dict(saved.get("box_margin") or {})
 
         self._apply_design_layers()
         self._rebuild_footprint_list()
@@ -5253,6 +5282,7 @@ class Viewer2D(QtWidgets.QWidget):
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
             "model_display": entry.get("model_display", "model"),
+            "box_margin": dict(entry.get("box_margin") or {}),
         }
 
     def _rebuild_after_entry_change(self):
@@ -5324,6 +5354,7 @@ class Viewer2D(QtWidgets.QWidget):
                 "model_adjust": dict(saved.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": saved.get("model_adjust_mode", "auto"),
                 "model_display": saved.get("model_display", "model"),
+                "box_margin": dict(saved.get("box_margin") or {}),
             }
             index = max(0, min(int(saved["index"]), len(self._entries)))
             self._entries.insert(index, entry)
@@ -7772,6 +7803,7 @@ class Viewer2D(QtWidgets.QWidget):
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
             "model_display": entry.get("model_display", "model"),
+            "box_margin": dict(entry.get("box_margin") or {}),
         }
 
     def _refresh_3d_if_visible(self, force=False, auto_align=True):
@@ -7862,6 +7894,7 @@ class Viewer2D(QtWidgets.QWidget):
         try:
             display = self.model_display_combo.findData(entry.get("model_display", "model"))
             self.model_display_combo.setCurrentIndex(max(0, display))
+            self._sync_box_margin_controls([entry])
             mode = entry.get("model_adjust_mode", "auto")
             index = self.model_adjust_mode.findData(mode)
             self.model_adjust_mode.setCurrentIndex(max(0, index))
@@ -7947,16 +7980,70 @@ class Viewer2D(QtWidgets.QWidget):
 
     # -- model display (3D model vs bounding box) -------------------------
     def _model_display_state(self, entries=None):
-        return dict((str(e.get("uid")), str(e.get("model_display", "model")))
-                    for e in (self._entries if entries is None else entries))
+        state = {}
+        for e in (self._entries if entries is None else entries):
+            top, side = box_margins(e)
+            state[str(e.get("uid"))] = {"mode": str(e.get("model_display", "model")),
+                                        "top": top, "side": side}
+        return state
 
     def _apply_model_display_state(self, state):
         for entry in self._entries:
-            mode = (state or {}).get(str(entry.get("uid")))
-            if mode in ("model", "box"):
-                entry["model_display"] = mode
+            saved = (state or {}).get(str(entry.get("uid")))
+            if isinstance(saved, str):
+                saved = {"mode": saved}
+            if not isinstance(saved, dict):
+                continue
+            if saved.get("mode") in ("model", "box"):
+                entry["model_display"] = saved["mode"]
+            if "top" in saved or "side" in saved:
+                entry["box_margin"] = {"top": float(saved.get("top", 0.0)),
+                                       "side": float(saved.get("side", 0.0))}
         self._refresh_3d_if_visible(force=True, auto_align=False)
         self._sync_model_display_controls()
+
+    # -- bounding-box margins ---------------------------------------------
+    def _set_box_margins(self, entries, top=None, side=None, history=True):
+        """Set the box clearance of *entries*; ``None`` keeps a value as is."""
+        entries = list(entries)
+        before = self._model_display_state(entries)
+        changed = False
+        for entry in entries:
+            cur_top, cur_side = box_margins(entry)
+            new_top = cur_top if top is None else max(0.0, float(top))
+            new_side = cur_side if side is None else max(0.0, float(side))
+            if abs(new_top - cur_top) > 1e-9 or abs(new_side - cur_side) > 1e-9:
+                entry["box_margin"] = {"top": new_top, "side": new_side}
+                changed = True
+        if not changed:
+            return False
+        if history:
+            self._push_history({"kind": "model_display", "before": before,
+                                "after": self._model_display_state(entries)})
+            self.refresh_modified_state()
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        return True
+
+    def _on_box_margin_live(self, key, value):
+        if self._updating_model_adjust:
+            return
+        targets = [e for e in self._property_targets() if e.get("model_display", "model") == "box"]
+        if not targets:
+            return
+        if self._box_margin_edit_before is None:
+            self._box_margin_edit_before = (targets, self._model_display_state(targets))
+        self._set_box_margins(targets, **{key: value, "history": False})
+
+    def _commit_box_margin_edit(self):
+        pending = self._box_margin_edit_before
+        self._box_margin_edit_before = None
+        if pending is None:
+            return
+        targets, before = pending
+        after = self._model_display_state(targets)
+        if after != before:
+            self._push_history({"kind": "model_display", "before": before, "after": after})
+            self.refresh_modified_state()
 
     def _set_model_display(self, entries, mode):
         mode = "box" if mode == "box" else "model"
@@ -8000,6 +8087,26 @@ class Viewer2D(QtWidgets.QWidget):
             blocked = self.model_display_combo.blockSignals(True)
             self.model_display_combo.setCurrentIndex(max(0, index))
             self.model_display_combo.blockSignals(blocked)
+        self._sync_box_margin_controls(targets)
+
+    def _sync_box_margin_controls(self, targets=None):
+        if not hasattr(self, "box_margin_spins"):
+            return
+        targets = self._property_targets() if targets is None else targets
+        boxes = [e for e in targets if e.get("model_display", "model") == "box"]
+        self.box_margin_row.setVisible(bool(boxes))
+        if not boxes:
+            return
+        top, side = box_margins(boxes[0])
+        updating = self._updating_model_adjust
+        self._updating_model_adjust = True
+        try:
+            for key, value in (("top", top), ("side", side)):
+                spin = self.box_margin_spins[key]
+                if abs(spin.value() - value) > 1e-9:
+                    spin.setValue(value)
+        finally:
+            self._updating_model_adjust = updating
 
     def _align_model(self, axes):
         targets = self._property_targets()

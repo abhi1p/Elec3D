@@ -262,19 +262,25 @@ def _scaled_shape(App, shape, scale):
             raise ExportError("component model scale could not be applied: %s" % exc)
 
 
-def _bounding_box_shape(Part, App, shape):
+def _bounding_box_shape(Part, App, shape, top=0.0, side=0.0):
     """Solid box of *shape*'s extents in its current (footprint-local) frame.
 
     Taken before the footprint rotation, exactly like the 3D view's box, so
     the exported box is aligned with the component rather than the board.
+    *side* widens it on all four sides and *top* raises its top face; the
+    underside stays on the model's lowest point.
     """
     try:
         bb = shape.optimalBoundingBox(True, False)
     except Exception:
         bb = shape.BoundBox
-    size = [max(1e-4, float(v)) for v in (bb.XLength, bb.YLength, bb.ZLength)]
+    top = max(0.0, float(top or 0.0))
+    side = max(0.0, float(side or 0.0))
+    size = [max(1e-4, float(bb.XLength) + 2.0 * side),
+            max(1e-4, float(bb.YLength) + 2.0 * side),
+            max(1e-4, float(bb.ZLength) + top)]
     return Part.makeBox(size[0], size[1], size[2],
-                        App.Vector(float(bb.XMin), float(bb.YMin), float(bb.ZMin)))
+                        App.Vector(float(bb.XMin) - side, float(bb.YMin) - side, float(bb.ZMin)))
 
 
 def _model_shape(Part, App, path, entry, plane_z):
@@ -300,7 +306,9 @@ def _model_shape(Part, App, path, entry, plane_z):
     ox, oy, oz = [float(v) for v in (getattr(model, "offset", None) or (0.0, 0.0, 0.0))]
     shape.translate(App.Vector(ox, oy, oz))
     if str(entry.get("model_display", "model")) == "box":
-        shape = _bounding_box_shape(Part, App, shape)
+        from .design import box_margins
+        top, side = box_margins(entry)
+        shape = _bounding_box_shape(Part, App, shape, top, side)
     fp_rotation = -float(entry.get("rotation", 0.0) or 0.0)
     if abs(fp_rotation) > 1e-12:
         shape.rotate(App.Vector(0, 0, 0), App.Vector(0, 0, 1), fp_rotation)

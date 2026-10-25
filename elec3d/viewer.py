@@ -609,6 +609,7 @@ def _snapshot_viewer_state(viewer):
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
             "model_display": entry.get("model_display", "model"),
+            "box_margin": dict(entry.get("box_margin") or {}),
         })
 
     # A multi-selection has to survive a host rebuild in full; keeping only one
@@ -768,6 +769,7 @@ def _restore_viewer_state(viewer, state, restore_view=False):
         restored_entry["model_adjust"] = dict(saved.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0})
         restored_entry["model_adjust_mode"] = saved.get("model_adjust_mode", "auto")
         restored_entry["model_display"] = saved.get("model_display", "model")
+        restored_entry["box_margin"] = dict(saved.get("box_margin") or {})
         design_layer_id = saved.get("design_layer_id")
         if design_layer_id is not None and viewer.stack.has(design_layer_id):
             item.design_layer_id = design_layer_id

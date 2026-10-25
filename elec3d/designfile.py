@@ -417,6 +417,11 @@ def dumps(data):
             _f(adjust.get("y", 0.0)), _f(adjust.get("z", 0.0))))
         if str(fp.get("model_display", "model")) == "box":
             lines.append("      (model_display \"box\")")
+        margin = fp.get("box_margin") or {}
+        top = float(margin.get("top", 0.0) or 0.0)
+        side = float(margin.get("side", 0.0) or 0.0)
+        if top > 0.0 or side > 0.0:
+            lines.append("      (box_margin (top %s) (side %s))" % (_f(top), _f(side)))
         lines.append("    )")
     lines.append("  )")
 
@@ -589,6 +594,10 @@ def loads(text):
             "model_adjust": {"x": 0.0, "y": 0.0, "z": 0.0}, "model_adjust_mode": "auto",
             "model_display": "box" if _node_value(node, "model_display", "model") == "box" else "model",
         }
+        bm = child(node, "box_margin")
+        if bm is not None:
+            fp["box_margin"] = {"top": max(0.0, _num(bm, "top", 0.0)),
+                                "side": max(0.0, _num(bm, "side", 0.0))}
         for gl in children(node, "graphic_layer"):
             if len(gl) >= 3:
                 fp["layers"][gl[1]] = str(gl[2]).lower() == "yes"

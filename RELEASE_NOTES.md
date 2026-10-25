@@ -4,6 +4,14 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.20.0
+
+- **Bounding-box margins.** A component shown as a box gets two clearance
+  values under *3D model*: **box top** (added above the box) and **box sides**
+  (added on all four sides). Nothing is added below — the box stays seated on
+  the model's lowest point. Margins apply to every selected box, are undoable,
+  saved with the project and used by STEP/FreeCAD export.
+
 ## 0.19.0
 
 - **Show components as bounding boxes.** A new **Boxes** button in the 3D

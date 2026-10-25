@@ -21,6 +21,7 @@ import os
 from .qt import Qt, QtCore, QtGui, QtWidgets, Signal, enum
 from .layers import layer_color, outline_hex, hex_to_rgb
 from . import stepcolor
+from .design import box_margins
 from . import theme as thememod
 
 __all__ = ["Board3DView", "board_bounds", "layer_heights"]
@@ -1731,7 +1732,10 @@ class Board3DView(QtWidgets.QWidget):
                     scene.triangle(a, transformed[face[i]], transformed[face[i + 1]],
                                    body, 1.0)
         if as_box and math.isfinite(local_lo[0]):
-            self._add_model_box(scene, local_lo, local_hi, place, dominant or MODEL_NEUTRAL)
+            top, side = box_margins(entry)
+            box_lo = (local_lo[0] - side, local_lo[1] - side, local_lo[2])
+            box_hi = (local_hi[0] + side, local_hi[1] + side, local_hi[2] + top)
+            self._add_model_box(scene, box_lo, box_hi, place, dominant or MODEL_NEUTRAL)
         # Bounds always come from the real model so Auto alignment and the
         # offset readout are identical in both display modes.
         if math.isfinite(model_lo[0]):
@@ -1817,7 +1821,7 @@ class Board3DView(QtWidgets.QWidget):
                    e.get("design_layer_id"), tuple(sorted(e.get("layer_visibility", {}).items())),
                    tuple(sorted((e.get("model_adjust") or {}).items())),
                    e.get("model_adjust_mode", "auto"),
-                   e.get("model_display", "model")) for e in entries),
+                   e.get("model_display", "model"), box_margins(e)) for e in entries),
             repr(stack.snapshot()),
             solid.signature() if solid is not None else None,
             repr({"tracks": [t.snapshot() for t in (routed or {}).get("tracks", [])],

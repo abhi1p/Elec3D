@@ -46,6 +46,21 @@ DEFAULT_COPPER_THICKNESS_MM = 0.035
 DEFAULT_SEPARATION_MM = 1.6
 
 
+def box_margins(entry):
+    """``(top, side)`` clearance in mm added to a component's bounding box.
+
+    The box only grows upwards and outwards: its underside stays on the
+    model's lowest point, so a box never sinks into the board.
+    """
+    margin = (entry or {}).get("box_margin") or {}
+    try:
+        top = max(0.0, float(margin.get("top", 0.0) or 0.0))
+        side = max(0.0, float(margin.get("side", 0.0) or 0.0))
+    except (TypeError, ValueError, AttributeError):
+        return 0.0, 0.0
+    return top, side
+
+
 class DesignLayer(object):
     """One copper editor/reference layer.
 

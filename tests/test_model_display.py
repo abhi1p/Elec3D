@@ -40,13 +40,14 @@ _FAKE_MESH = [([(-1.0, -2.0, 0.0), (1.0, -2.0, 0.0), (1.0, 2.0, 0.0), (-1.0, 2.0
 
 @unittest.skipUnless(HAVE_QT, "no PySide binding available")
 class TestBoxRendering(unittest.TestCase):
-    def _view(self, display, rotation=0.0):
+    def _view(self, display, rotation=0.0, margin=None):
         stack = LayerStack()
         fp = parse_footprint_file(SAMPLE)
         entry = {"uid": "u1", "fp": fp, "pos": QtCore.QPointF(5.0, 3.0), "rotation": rotation,
                  "design_layer_id": stack.layers[-1].id, "layer_visibility": {},
                  "model_adjust": {"x": 0.0, "y": 0.0, "z": 0.0},
-                 "model_adjust_mode": "manual", "model_display": display}
+                 "model_adjust_mode": "manual", "model_display": display,
+                 "box_margin": dict(margin or {})}
         view = view3d.Board3DView(theme="light")
         view._resolved_model = lambda model: "/fake/model.step"
         view._model_mesh = lambda path: _FAKE_MESH
@@ -71,6 +72,25 @@ class TestBoxRendering(unittest.TestCase):
         self.assertAlmostEqual(max(xs) - min(xs), 2.0)
         self.assertAlmostEqual(max(ys) - min(ys), 4.0)
         self.assertAlmostEqual(max(zs) - min(zs), 1.0)
+
+    def _extents(self, view):
+        pts = [p for t in self._model_triangles(view) for p in t[:3]]
+        return [(min(p[i] for p in pts), max(p[i] for p in pts)) for i in range(3)]
+
+    def test_margins_grow_top_and_sides_but_not_bottom(self):
+        plain = self._extents(self._view("box"))
+        grown = self._extents(self._view("box", margin={"top": 0.5, "side": 0.25}))
+        for axis in (0, 1):
+            self.assertAlmostEqual(grown[axis][0], plain[axis][0] - 0.25)
+            self.assertAlmostEqual(grown[axis][1], plain[axis][1] + 0.25)
+        self.assertAlmostEqual(grown[2][0], plain[2][0])          # underside unchanged
+        self.assertAlmostEqual(grown[2][1], plain[2][1] + 0.5)
+
+    def test_margins_do_not_affect_the_model_or_alignment(self):
+        model = self._view("model", margin={"top": 1.0, "side": 1.0})
+        self.assertEqual(len(self._model_triangles(model)), 2)
+        box = self._view("box", margin={"top": 1.0, "side": 1.0})
+        self.assertEqual(model._model_bounds["u1"], box._model_bounds["u1"])
 
     def test_box_rotates_with_the_footprint(self):
         box = self._view("box", rotation=90.0)
@@ -114,24 +134,72 @@ class TestPanelModelDisplay(unittest.TestCase):
         states = self.viewer._export_entries()
         self.assertEqual([s["model_display"] for s in states], ["box", "model"])
 
+    def test_margins_are_one_undo_step_and_only_for_boxes(self):
+        first, second = self.viewer._entries
+        self.viewer._set_model_display([first], "box")
+        self.assertTrue(self.viewer._set_box_margins([first], top=0.4, side=0.2))
+        self.assertEqual(first["box_margin"], {"top": 0.4, "side": 0.2})
+        self.assertFalse(self.viewer._set_box_margins([first], top=0.4))   # no change
+        self.viewer.undo()
+        self.assertEqual(first.get("box_margin"), {"top": 0.0, "side": 0.0})
+        self.assertEqual(first["model_display"], "box")
+        self.viewer.redo()
+        self.assertEqual(first["box_margin"], {"top": 0.4, "side": 0.2})
+        self.assertEqual(self.viewer._export_entries()[0]["box_margin"],
+                         {"top": 0.4, "side": 0.2})
+        self.assertFalse(second.get("box_margin"))
+
+    def test_negative_margin_is_clamped(self):
+        from elec3d.design import box_margins
+        self.assertEqual(box_margins({"box_margin": {"top": -1, "side": "x"}}), (0.0, 0.0))
+        self.assertEqual(box_margins({"box_margin": {"top": -1, "side": 2}}), (0.0, 2.0))
+        self.assertEqual(box_margins({}), (0.0, 0.0))
+
     def test_choice_survives_save_and_load(self):
         import tempfile, shutil
         self.viewer._set_model_display([self.viewer._entries[1]], "box")
+        self.viewer._set_box_margins([self.viewer._entries[1]], top=1.5, side=0.3)
         folder = tempfile.mkdtemp(prefix="e3d-display-")
         try:
             path = os.path.join(folder, "b.e3d_pcb")
             designfile.write_file(path, self.viewer._design_snapshot(path))
             with open(path, encoding="utf-8") as fh:
-                self.assertEqual(fh.read().count('(model_display "box")'), 1)
+                text = fh.read()
+                self.assertEqual(text.count('(model_display "box")'), 1)
+                self.assertEqual(text.count("(box_margin (top 1.5) (side 0.3))"), 1)
             fresh = Viewer2D(theme="dark")
             try:
                 fresh.load_design_from(path)
                 self.assertEqual([e.get("model_display") for e in fresh._entries],
                                  ["model", "box"])
+                self.assertEqual(fresh._entries[1]["box_margin"], {"top": 1.5, "side": 0.3})
+                self.assertFalse(fresh._entries[0].get("box_margin"))
             finally:
                 fresh.deleteLater()
         finally:
             shutil.rmtree(folder, ignore_errors=True)
+
+
+class _BB(object):
+    XMin, YMin, ZMin, XLength, YLength, ZLength = -1.0, -2.0, 0.0, 2.0, 4.0, 1.0
+
+
+class _StubShape(object):
+    def optimalBoundingBox(self, *_a):
+        return _BB()
+
+
+class TestExportBoxMargins(unittest.TestCase):
+    def test_exported_box_grows_like_the_view(self):
+        calls = []
+        part = types.SimpleNamespace(makeBox=lambda *a: calls.append(a) or "BOX")
+        app = types.SimpleNamespace(Vector=lambda *v: tuple(v))
+        self.assertEqual(export3d._bounding_box_shape(part, app, _StubShape(), 0.5, 0.25), "BOX")
+        w, d, h, base = calls[-1]
+        self.assertAlmostEqual(w, 2.5); self.assertAlmostEqual(d, 4.5); self.assertAlmostEqual(h, 1.5)
+        self.assertEqual(base, (-1.25, -2.25, 0.0))
+        export3d._bounding_box_shape(part, app, _StubShape())
+        self.assertEqual(calls[-1][:3], (2.0, 4.0, 1.0))
 
 
 class _Obj(object):
