@@ -1,0 +1,52 @@
+# --- Python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Test / development environment (requirements-test.txt; never part of the addon)
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+Elec3D-*.zip
+
+# --- PyCharm / IntelliJ project settings (local to each developer) ------
+.idea/
+
+# --- Other editors / OS ------------------------------------------------
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- FreeCAD -----------------------------------------------------------
+# Backup copies FreeCAD writes next to saved documents
+*.FCStd1
+*.FCBak
+
+# --- Elec3D ----------------------------------------------------
+# Interrupted atomic saves of .e3d_pcb / project assets
+.e3d-save-*.tmp
+# Scratch projects created while testing the viewer
+*.e3d_pro
+*.e3d_pcb
+!tests/data/*.e3d_pcb
+
+# KiCad lock/backup files if a footprint library is edited alongside
+*.kicad_mod.bak
+*-backups/
+fp-info-cache

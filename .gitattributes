@@ -1,0 +1,51 @@
+# Line endings for cross-platform development (Windows / Linux / macOS).
+#
+# Every text file is stored with LF in the repository and checked out with LF
+# on all platforms, regardless of each developer's core.autocrlf setting.
+# Python, FreeCAD and every editor in use read LF fine on Windows, and this
+# keeps diffs free of whole-file line-ending churn.
+* text=auto eol=lf
+
+# Source and docs (explicit, so detection never guesses wrong)
+*.py        text eol=lf diff=python
+*.md        text eol=lf
+*.txt       text eol=lf
+*.xml       text eol=lf
+*.svg       text eol=lf
+*.json      text eol=lf
+*.cfg       text eol=lf
+*.toml      text eol=lf
+*.ini       text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.editorconfig   text eol=lf
+LICENSE     text eol=lf
+
+# Windows-only scripts must keep CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# Elec3D / KiCad design files written by the add-on use LF
+*.e3d_pro   text eol=lf
+*.e3d_pcb   text eol=lf
+*.kicad_mod text eol=lf
+*.net       text eol=lf
+
+# Third-party CAD exchange files and test fixtures: keep byte-exact
+*.step      -text
+*.stp       -text
+*.STEP      -text
+*.STP       -text
+*.wrl       -text
+tests/data/** -text
+
+# Binary
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.pdf       binary
+*.zip       binary
+*.FCStd     binary

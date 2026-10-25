@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<package format="1" xmlns="https://wiki.freecad.org/Package_Metadata">
+  <name>Elec3D</name>
+  <description>
+    Opens Elec3D board designs, KiCad footprints and netlists in a custom document-free 2D/3D viewer.
+    Explicit export can write STEP assemblies or create matching B-Rep geometry directly in a FreeCAD document.
+  </description>
+  <version>0.18.1</version>
+  <date>2026-10-25</date>
+  <maintainer email="you@example.com">Your Name</maintainer>
+  <license file="LICENSE">LGPL-2.1-or-later</license>
+  <url type="repository" branch="main">https://github.com/yourname/Elec3D</url>
+  <url type="readme">https://github.com/yourname/Elec3D/blob/main/README.md</url>
+  <icon>resources/icons/Elec3D.svg</icon>
+
+  <content>
+    <workbench>
+      <classname>Elec3DWorkbench</classname>
+      <name>Elec3D</name>
+      <description>View KiCad footprints and netlists in a custom 2D/3D UI without creating a FreeCAD document.</description>
+      <icon>resources/icons/Elec3D.svg</icon>
+      <subdirectory>./</subdirectory>
+      <freecadmin>1.0</freecadmin>
+      <tag>KiCad</tag>
+      <tag>PCB</tag>
+      <tag>import</tag>
+    </workbench>
+  </content>
+</package>

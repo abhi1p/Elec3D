@@ -1,0 +1,6 @@
+# Development/test dependencies only.
+#
+# Do NOT install these into FreeCAD's bundled Python environment. FreeCAD ships
+# its own Qt/PySide binding for normal addon runtime use. This dependency is for
+# running the custom 2D viewer tests from a standalone Python environment.
+PySide6>=6.5,<7
