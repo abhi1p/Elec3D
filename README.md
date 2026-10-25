@@ -196,7 +196,7 @@ The rest of the UI provides:
 - a **File** menu in the viewer header for project create/open/save/close, *Open Project Folder* (shows it in your file manager), import, reload, 3D-model and export actions
 - an **Edit** menu for undo/redo, Design Rules, Stackup and Preferences, with Preferences kept last
 - a **Tools → DRC Check…** command for an explicit whole-board design-rule report
-- an **About** menu: *Report a Bug…* opens a new GitHub issue with your Elec3D, FreeCAD, Qt, Python and OS versions filled in; *Elec3D on GitHub*; *About Elec3D…*
+- an **About** menu: *Report a Bug…* opens the GitHub bug-report form with your Elec3D, FreeCAD, Qt, Python, OS and viewer-mode details filled in; *Elec3D on GitHub*; *About Elec3D…*
 - always-visible add-on version number in the viewer header
 - automatic light/dark appearance matching the current FreeCAD theme
 

@@ -1627,32 +1627,67 @@ class Viewer2D(QtWidgets.QWidget):
 
     @staticmethod
     def _environment_summary():
-        """Versions worth quoting in a bug report."""
+        """Versions worth quoting in a bug report (Markdown list)."""
         import platform
         from .qt import QT_BINDING
-        lines = ["- Elec3D: %s" % __version__]
+        lines = []
         try:
             import FreeCAD
-            version = FreeCAD.Version()
-            lines.append("- FreeCAD: %s" % ".".join(str(v) for v in version[:3]))
+            version = [str(v) for v in FreeCAD.Version()]
+            text = ".".join(version[:3])
+            if len(version) > 3 and version[3].strip():
+                text += " (revision %s)" % version[3].split()[0]
+            lines.append("- FreeCAD: %s" % text)
         except Exception:
-            lines.append("- FreeCAD: (not running inside FreeCAD)")
+            lines.append("- FreeCAD: not running inside FreeCAD")
         lines.append("- Qt: %s (%s)" % (QtCore.qVersion(), QT_BINDING))
         lines.append("- Python: %s" % platform.python_version())
         lines.append("- OS: %s" % platform.platform())
+        try:
+            import FreeCAD
+            mode = FreeCAD.ParamGet(PREF_PATH).GetString("ViewerMode", "tab")
+            lines.append("- Viewer mode: %s" % ("separate window" if mode == "window" else "tab"))
+        except Exception:
+            pass
         return "\n".join(lines)
 
+    # Field ids of .github/ISSUE_TEMPLATE/bug_report.yml that are pre-filled.
+    BUG_TEMPLATE = "bug_report.yml"
+
+    def _bug_report_fallback_body(self):
+        """Markdown used if the repository has no issue form (yet)."""
+        return (
+            "### Description\n"
+            "<!-- A clear and concise description of the problem. -->\n\n"
+            "### Steps to reproduce\n1. \n2. \n3. \n\n"
+            "### Expected behaviour\n\n\n"
+            "### Actual behaviour\n\n\n"
+            "### Report view output\n"
+            "<!-- Errors or tracebacks from View > Panels > Report view. -->\n"
+            "```\n\n```\n\n"
+            "### Screenshots and files\n"
+            "<!-- Drag in screenshots or a zipped project that reproduces it. -->\n\n"
+            "### Environment\n"
+            "- Elec3D: %s\n%s\n" % (__version__, self._environment_summary()))
+
     def bug_report_url(self):
-        """New-issue URL on GitHub with the environment pre-filled."""
-        body = ("**What happened?**\n\n\n"
-                "**Steps to reproduce**\n1. \n2. \n\n"
-                "**What did you expect?**\n\n\n"
-                "**Environment**\n" + self._environment_summary() + "\n")
+        """New-issue URL on GitHub with version and environment pre-filled.
+
+        Opens the *Bug report* issue form; ``version`` and ``environment``
+        are field ids in that form.  ``body`` is only used by GitHub when the
+        form does not exist, so the report is still structured.
+        """
         # Percent-encode everything ourselves: QUrlQuery leaves "+", "&" and
-        # "#" alone, and any of those in a version string would break the body.
+        # "#" alone, and any of those in a version string would break a value.
         from urllib.parse import quote
-        return QtCore.QUrl.fromEncoded(
-            (ISSUES_URL + "/new?body=" + quote(body, safe="")).encode("ascii"))
+        params = (("template", self.BUG_TEMPLATE),
+                  ("labels", "bug"),
+                  ("title", "[Bug]: "),
+                  ("version", __version__),
+                  ("environment", self._environment_summary()),
+                  ("body", self._bug_report_fallback_body()))
+        query = "&".join("%s=%s" % (key, quote(value, safe="")) for key, value in params)
+        return QtCore.QUrl.fromEncoded((ISSUES_URL + "/new?" + query).encode("ascii"))
 
     def report_bug(self):
         """About > Report a Bug…: open a pre-filled GitHub issue."""
@@ -1674,6 +1709,7 @@ class Viewer2D(QtWidgets.QWidget):
             "<a href=\"%s\">%s</a><br>Licensed under LGPL-2.1-or-later."
             % (__version__, REPOSITORY_URL, REPOSITORY_URL))
         box.setInformativeText(self._environment_summary().replace("- ", ""))
+        box.setDetailedText("Elec3D %s\n%s" % (__version__, self._environment_summary()))
         exec_dialog(box)
 
     def project_folder(self):

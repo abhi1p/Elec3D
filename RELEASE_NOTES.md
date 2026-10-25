@@ -4,6 +4,18 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.22.1
+
+- **Professional bug reports.** The repository now has a GitHub issue form
+  (`.github/ISSUE_TEMPLATE/bug_report.yml`) with Description, Steps to
+  reproduce, Expected / Actual behaviour, Affected area, Report view output,
+  Screenshots and files, version, environment and a duplicate-search checklist.
+  Reports are labelled `bug` and titled `[Bug]: …`. **About → Report a Bug…**
+  opens this form with the Elec3D version and environment (FreeCAD revision,
+  Qt, Python, OS, viewer mode) already filled in.
+- *About Elec3D…* has a **Show Details…** button with the same environment text
+  to copy into a report.
+
 ## 0.22.0
 
 - **About menu** in the editor header: **Report a Bug…** opens a new issue on

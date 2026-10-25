@@ -49,14 +49,40 @@ class TestAboutMenu(unittest.TestCase):
         self.assertEqual(texts, ["Report a Bug…", "Elec3D on GitHub", "About Elec3D…"])
         self.assertEqual(self.viewer.btn_about.text().split()[0], "About")
 
-    def test_report_bug_opens_a_prefilled_new_issue(self):
-        self.assertTrue(self.viewer.report_bug())
+    def _query(self):
         url = QtCore.QUrl(self.opened[-1])
-        self.assertEqual(self.opened[-1].split("?", 1)[0], ISSUES_URL + "/new")
         items = dict(QtCore.QUrlQuery(url).queryItems())
-        body = QtCore.QUrl.fromPercentEncoding(items["body"].encode("utf-8"))
-        self.assertIn("Elec3D: %s" % __version__, body)
-        self.assertIn("Steps to reproduce", body)
+        return dict((k, QtCore.QUrl.fromPercentEncoding(v.encode("utf-8")))
+                    for k, v in items.items())
+
+    def test_report_bug_opens_the_issue_form_prefilled(self):
+        self.assertTrue(self.viewer.report_bug())
+        self.assertEqual(self.opened[-1].split("?", 1)[0], ISSUES_URL + "/new")
+        query = self._query()
+        self.assertEqual(query["template"], "bug_report.yml")
+        self.assertEqual(query["labels"], "bug")
+        self.assertEqual(query["version"], __version__)
+        self.assertIn("- Qt:", query["environment"])
+        self.assertIn("- OS:", query["environment"])
+        # Fallback body for a repository without the form.
+        self.assertIn("### Steps to reproduce", query["body"])
+        self.assertIn("- Elec3D: %s" % __version__, query["body"])
+
+    def test_prefilled_fields_exist_in_the_issue_form(self):
+        try:
+            import yaml
+        except ImportError:                                 # pragma: no cover
+            self.skipTest("PyYAML not installed")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(root, ".github", "ISSUE_TEMPLATE", self.viewer.BUG_TEMPLATE)
+        with open(path, encoding="utf-8") as fh:
+            form = yaml.safe_load(fh)
+        ids = set(item.get("id") for item in form["body"] if item.get("id"))
+        self.viewer.report_bug()
+        for key in self._query():
+            if key not in ("template", "labels", "title", "body"):
+                self.assertIn(key, ids)
+        self.assertEqual(form["labels"], ["bug"])
 
     def test_github_entry_opens_the_repository(self):
         self.viewer.act_github.trigger()

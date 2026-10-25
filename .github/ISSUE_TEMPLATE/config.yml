@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Elec3D documentation (README)
+    url: https://github.com/abhi1p/Elec3D/blob/main/README.md
+    about: Usage, workflow and preferences.

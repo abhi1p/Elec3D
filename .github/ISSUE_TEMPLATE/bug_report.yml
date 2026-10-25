@@ -1,0 +1,120 @@
+name: Bug report
+description: Report a defect in Elec3D (crash, error message, wrong geometry or export, UI problem).
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a problem with Elec3D.
+        Reports opened from **About → Report a Bug…** in Elec3D already have the
+        version and environment filled in below. Please describe the problem as
+        precisely as you can; one report per problem.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of the problem.
+      placeholder: e.g. Selecting a footprint in 3D raises "TypeError …" and the selection is lost.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The minimal sequence of actions that triggers the problem.
+      placeholder: |
+        1. Open the attached project
+        2. Switch to 3D
+        3. Click component U1
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: What happened instead.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      multiple: true
+      options:
+        - 2D editor / footprints
+        - Routing / DRC
+        - 3D view / component models
+        - Board solid / stackup
+        - Netlist import
+        - STEP / FreeCAD export
+        - Projects / saving / opening
+        - Workbench, tab or window handling
+        - Other
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Report view output
+      description: |
+        Error messages or tracebacks from FreeCAD's Report view
+        (*View → Panels → Report view*). Copy the text rather than a screenshot.
+      render: shell
+
+  - type: textarea
+    id: attachments
+    attributes:
+      label: Screenshots and files
+      description: |
+        Drag in screenshots, or a zipped project (`.e3d_pro` folder) / footprint
+        that reproduces the problem. Remove anything confidential first.
+
+  - type: input
+    id: version
+    attributes:
+      label: Elec3D version
+      description: Shown in the editor header and in **About → About Elec3D…**.
+      placeholder: e.g. 0.22.1
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Filled in automatically when reported from Elec3D.
+      placeholder: |
+        - FreeCAD:
+        - Qt:
+        - Python:
+        - OS:
+        - Viewer mode: tab / separate window
+      render: markdown
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched the existing issues and this has not been reported yet.
+          required: true
+        - label: I can reproduce this with the latest Elec3D release.
+          required: false
