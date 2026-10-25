@@ -7,10 +7,10 @@
   </description>
   <version>0.21.0</version>
   <date>2026-10-25</date>
-  <maintainer email="you@example.com">Your Name</maintainer>
+  <maintainer email="abhi1p@users.noreply.github.com">abhi1p</maintainer>
   <license file="LICENSE">LGPL-2.1-or-later</license>
-  <url type="repository" branch="main">https://github.com/yourname/Elec3D</url>
-  <url type="readme">https://github.com/yourname/Elec3D/blob/main/README.md</url>
+  <url type="repository" branch="main">https://github.com/abhi1p/Elec3D</url>
+  <url type="readme">https://github.com/abhi1p/Elec3D/blob/main/README.md</url>
   <icon>resources/icons/Elec3D.svg</icon>
 
   <content>
