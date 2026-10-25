@@ -35,6 +35,7 @@ BOARD_BLOCK = "#BFC7D2"        # the translucent block the design sits in
 BOARD_BLOCK_ALPHA = 0.14
 PLANE_EDGE = "#8894A6"         # thin outline marking each reference plane
 MODEL_NEUTRAL = "#BFC5CD"      # model face with no usable STEP colour
+MODEL_BOX_EDGE = "#3A4354"     # edges of a component drawn as its bounding box
 COPPER_METAL = "#D4AF37"       # one physical copper finish for every 3D conductor
 PAD_GOLD = COPPER_METAL          # compatibility name used by the pad builder
 
@@ -1370,6 +1371,8 @@ class Board3DView(QtWidgets.QWidget):
     """Document-free 3D board preview with GPU rendering and software fallback."""
 
     footprintSelected = Signal(object)
+    #: "box" or "model" for every component (toolbar *Boxes* toggle).
+    modelDisplayRequested = Signal(str)
 
     def __init__(self, parent=None, theme="light"):
         super(Board3DView, self).__init__(parent)
@@ -1413,6 +1416,15 @@ class Board3DView(QtWidgets.QWidget):
             # Equal stretch lets the row compress with the MDI viewport rather
             # than contributing eight fixed native button size hints.
             bar.addWidget(btn, 1)
+        self.btn_boxes = QtWidgets.QPushButton("Boxes")
+        self.btn_boxes.setCheckable(True)
+        self.btn_boxes.setMinimumWidth(0)
+        self.btn_boxes.setSizePolicy(SIZE_IGNORED, SIZE_FIXED)
+        self.btn_boxes.setToolTip("Show every component as its bounding box instead of its "
+                                  "3D model. Exports follow the same choice.")
+        self.btn_boxes.clicked.connect(lambda checked: self.modelDisplayRequested.emit(
+            "box" if checked else "model"))
+        bar.addWidget(self.btn_boxes, 1)
         self.hint = QtWidgets.QLabel("")
         self.hint.setObjectName("faint")
         self.hint.setMinimumWidth(0)
@@ -1681,9 +1693,19 @@ class Board3DView(QtWidgets.QWidget):
         ax = float(adjust.get("x", 0.0)); ay = float(adjust.get("y", 0.0)); az = float(adjust.get("z", 0.0))
         model_lo = [float("inf")] * 3
         model_hi = [float("-inf")] * 3
+        as_box = str(entry.get("model_display", "model")) == "box"
+        local_lo = [float("inf")] * 3
+        local_hi = [float("-inf")] * 3
+        dominant, dominant_size = None, -1
+
+        def place(p):
+            p = _rot_z(p, fp_rot)
+            return (p[0] + px + ax, p[1] - py - ay, p[2] + plane_z + az)
 
         for verts, facets, color in groups:
             body = _rgb01_to_hex(color) if color else MODEL_NEUTRAL
+            if len(facets) > dominant_size:
+                dominant, dominant_size = body, len(facets)
             transformed = []
             for x, y, z in verts:
                 p = (x * float(scale[0]), y * float(scale[1]), z * float(scale[2]))
@@ -1693,11 +1715,14 @@ class Board3DView(QtWidgets.QWidget):
                 # mapped back into our Z-up/Y-up world this leaves model-local
                 # X/Y unchanged.  Only the *board* translation below flips Y.
                 p = (p[0] + float(off[0]), p[1] + float(off[1]), p[2] + float(off[2]))
-                p = _rot_z(p, fp_rot)
-                q = (p[0] + px + ax, p[1] - py - ay, p[2] + plane_z + az)
+                for ii in range(3):
+                    local_lo[ii] = min(local_lo[ii], p[ii]); local_hi[ii] = max(local_hi[ii], p[ii])
+                q = place(p)
                 transformed.append(q)
                 for ii in range(3):
                     model_lo[ii] = min(model_lo[ii], q[ii]); model_hi[ii] = max(model_hi[ii], q[ii])
+            if as_box:
+                continue
             for face in facets:
                 if len(face) < 3:
                     continue
@@ -1705,8 +1730,26 @@ class Board3DView(QtWidgets.QWidget):
                 for i in range(1, len(face) - 1):
                     scene.triangle(a, transformed[face[i]], transformed[face[i + 1]],
                                    body, 1.0)
+        if as_box and math.isfinite(local_lo[0]):
+            self._add_model_box(scene, local_lo, local_hi, place, dominant or MODEL_NEUTRAL)
+        # Bounds always come from the real model so Auto alignment and the
+        # offset readout are identical in both display modes.
         if math.isfinite(model_lo[0]):
             self._model_bounds[entry.get("uid")] = (tuple(model_lo), tuple(model_hi))
+
+    @staticmethod
+    def _add_model_box(scene, lo, hi, place, color):
+        """Model-aligned bounding box (in the footprint's frame), placed like the model."""
+        x0, y0, z0 = lo
+        x1, y1, z1 = hi
+        c = [place(p) for p in ((x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0),
+                                (x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1))]
+        for a, b, cc, d in ((0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4),
+                            (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)):
+            scene.quad(c[a], c[b], c[cc], c[d], color, 1.0)
+        for i, j in ((0, 1), (1, 2), (2, 3), (3, 0), (4, 5), (5, 6), (6, 7), (7, 4),
+                     (0, 4), (1, 5), (2, 6), (3, 7)):
+            scene.line([c[i], c[j]], MODEL_BOX_EDGE, 1.0)
 
     def _add_routed_copper(self, scene, routed, stack, zmap):
         if not routed:
@@ -1773,7 +1816,8 @@ class Board3DView(QtWidgets.QWidget):
                    round(float(e.get("rotation", 0.0)), 4), id(e.get("fp")),
                    e.get("design_layer_id"), tuple(sorted(e.get("layer_visibility", {}).items())),
                    tuple(sorted((e.get("model_adjust") or {}).items())),
-                   e.get("model_adjust_mode", "auto")) for e in entries),
+                   e.get("model_adjust_mode", "auto"),
+                   e.get("model_display", "model")) for e in entries),
             repr(stack.snapshot()),
             solid.signature() if solid is not None else None,
             repr({"tracks": [t.snapshot() for t in (routed or {}).get("tracks", [])],

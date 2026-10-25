@@ -71,8 +71,10 @@ class TestExport3DArchitecture(unittest.TestCase):
         self.assertIn("target_document", section)
         self.assertIn("update_existing", section)
         self.assertIn("_clear_export_contents", section)
-        self.assertIn('"updated": bool(updated)', section)
-        self.assertIn("Update existing FreeCAD document", PANEL)
+        self.assertIn('"updated": mode == "update"', section)
+        self.assertIn('"added": mode == "add"', section)
+        self.assertIn("Replace previous export in", PANEL)
+        self.assertIn("Add as a new part to", PANEL)
         self.assertIn("_freecad_export_document", PANEL)
 
     def test_step_export_uses_freecad_coloured_step_exporter_and_restores_pcurve_pref(self):

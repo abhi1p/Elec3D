@@ -51,13 +51,26 @@ hidden temporary FreeCAD document and does not switch the visible MDI tab. Missi
 model files are reported but do not prevent the remaining board geometry from being
 exported.
 
-**Export to FreeCAD…** exposes the same geometry choices and creates a separate
-FreeCAD document tab directly from the generated B-Reps. The add-on viewer tab
-remains open. Repeating the export defaults to updating the linked document in
-place: only the managed `Elec3D PCB Export` assembly is replaced, so the same
-document/tab, save path, and unrelated user objects are preserved. Uncheck
-**Update existing FreeCAD document** to create a new snapshot document instead.
+**Export to FreeCAD…** exposes the same geometry choices and builds the B-Reps
+directly in FreeCAD; the Elec3D tab stays open. *Put the export in* chooses where:
+
+- **Replace previous export in “Doc”** — refresh the export part created last
+  time in place; the tab, its save path and unrelated objects are kept.
+- **Add as a new part to “Doc”** — put this export into any open document as an
+  additional part next to what is already there, so several exports (variants,
+  revisions, boards) can live in one tab.
+- **New FreeCAD document** — a separate tab.
+
 No temporary STEP file is written and re-imported.
+
+### Component models or bounding boxes
+
+In 3D, the **Boxes** toolbar button shows every component as its bounding box
+instead of its STEP model (click again for models). A single component can be
+switched under *3D model → show as* in the sidebar. The box follows the model's
+extents in the footprint's own frame, so it rotates with the part, and Auto
+alignment is unaffected. STEP and FreeCAD exports use the same per-component
+choice, and it is saved with the project.
 
 ## Viewer UI
 

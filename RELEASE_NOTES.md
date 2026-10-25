@@ -4,6 +4,21 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.19.0
+
+- **Show components as bounding boxes.** A new **Boxes** button in the 3D
+  toolbar switches every component between its 3D model and its bounding box;
+  *3D model → show as* in the sidebar switches a single component. The box is
+  aligned with the footprint, so it rotates with the part. Undoable and saved
+  with the project.
+- **Exports follow that choice.** STEP and FreeCAD exports write a solid box for
+  components shown as boxes and the exact model for the rest; the export dialog
+  shows how many models go out as boxes.
+- **Several exports in one FreeCAD tab.** *Export to FreeCAD* now asks where to
+  put the export: replace the previous export in place, **add it as a new part
+  to any open document** (keeping what is already there), or create a new
+  document. This replaces the *Update existing FreeCAD document* checkbox.
+
 ## 0.18.2
 
 - **Fixed: the workbench did not always follow the Elec3D tab.** Switching

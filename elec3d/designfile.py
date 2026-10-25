@@ -415,6 +415,8 @@ def dumps(data):
         lines.append("      (model_adjust %s %s %s %s)" % (
             _q(fp.get("model_adjust_mode", "auto")), _f(adjust.get("x", 0.0)),
             _f(adjust.get("y", 0.0)), _f(adjust.get("z", 0.0))))
+        if str(fp.get("model_display", "model")) == "box":
+            lines.append("      (model_display \"box\")")
         lines.append("    )")
     lines.append("  )")
 
@@ -585,6 +587,7 @@ def loads(text):
             "hidden_texts": _bool_value(node, "hidden_texts", False),
             "layers": {}, "model": None,
             "model_adjust": {"x": 0.0, "y": 0.0, "z": 0.0}, "model_adjust_mode": "auto",
+            "model_display": "box" if _node_value(node, "model_display", "model") == "box" else "model",
         }
         for gl in children(node, "graphic_layer"):
             if len(gl) >= 3:

@@ -77,7 +77,7 @@ def test_3d_selection_and_reference_style_model_alignment_are_wired():
     assert "footprintSelected" in view3d
     assert "pick_uid" in view3d
     assert "measure_model" in view3d
-    assert "3D model offset" in panel
+    assert "Section(\"3D model\")" in panel
     assert "model_adjust_mode" in panel
     assert "_auto_align_models" in panel
     assert "Align Z" in panel

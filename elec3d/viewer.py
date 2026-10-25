@@ -608,6 +608,7 @@ def _snapshot_viewer_state(viewer):
             "placeholder": bool(entry.get("placeholder", False)),
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
+            "model_display": entry.get("model_display", "model"),
         })
 
     # A multi-selection has to survive a host rebuild in full; keeping only one
@@ -649,6 +650,7 @@ def _snapshot_viewer_state(viewer):
         "design_path_variables": dict(getattr(viewer, "_design_path_variables", {}) or {}),
         "design_resource_file": getattr(viewer, "_design_resource_file", ""),
         "freecad_export_document": getattr(viewer, "_freecad_export_document", ""),
+        "freecad_export_root": getattr(viewer, "_freecad_export_root", ""),
         "saved_content_signature": getattr(viewer, "_saved_content_signature", None),
         # Re-evaluate synchronously.  The normal dirty-state poll runs every
         # 200 ms, so a host switch immediately after an edit must not snapshot
@@ -737,6 +739,7 @@ def _restore_viewer_state(viewer, state, restore_view=False):
     viewer._design_path_variables = dict(state.get("design_path_variables", {}) or {})
     viewer._design_resource_file = state.get("design_resource_file", "") or ""
     viewer._freecad_export_document = state.get("freecad_export_document", "") or ""
+    viewer._freecad_export_root = state.get("freecad_export_root", "") or ""
     viewer._saved_content_signature = state.get("saved_content_signature")
     viewer._modified = bool(state.get("modified", False))
     viewer._export_options.update(dict(state.get("export_options", {}) or {}))
@@ -764,6 +767,7 @@ def _restore_viewer_state(viewer, state, restore_view=False):
         restored_entry = viewer._entries[-1]
         restored_entry["model_adjust"] = dict(saved.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0})
         restored_entry["model_adjust_mode"] = saved.get("model_adjust_mode", "auto")
+        restored_entry["model_display"] = saved.get("model_display", "model")
         design_layer_id = saved.get("design_layer_id")
         if design_layer_id is not None and viewer.stack.has(design_layer_id):
             item.design_layer_id = design_layer_id
@@ -1376,8 +1380,9 @@ def create_freecad_document():
         dict(viewer._export_options), source_name=viewer._export_source_name(),
         progress=viewer._export_progress,
         target_document=getattr(viewer, "_freecad_export_document", ""),
-        update_existing=True)
+        mode="update", target_root=getattr(viewer, "_freecad_export_root", ""))
     viewer._freecad_export_document = getattr(result["document"], "Name", "") or ""
+    viewer._freecad_export_root = getattr(result.get("root"), "Name", "") or ""
     keep_viewer_tab_available()
     return result["document"]
 

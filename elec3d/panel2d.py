@@ -293,15 +293,22 @@ class ControlRow(QtWidgets.QWidget):
 class Export3DDialog(QtWidgets.QDialog):
     """STEP/FreeCAD export options, mirroring the reference viewer workflow."""
 
-    def __init__(self, counts, options, destination="step", parent=None, target_document="", target_available=False):
+    def __init__(self, counts, options, destination="step", parent=None, target_document="",
+                 target_available=False, targets=None, default_target=None):
         super(Export3DDialog, self).__init__(parent)
         self.counts = dict(counts or {})
         self.options = dict(options or {})
         self.destination = "freecad" if destination == "freecad" else "step"
         self.target_document = str(target_document or "")
         self.target_available = bool(target_available and self.target_document)
-        if self.destination == "freecad":
-            self.options["update_existing"] = self.target_available
+        # FreeCAD destinations: [(mode, document, text)], mode in update/add/new.
+        self.targets = list(targets or [])
+        if self.destination == "freecad" and not self.targets:
+            if self.target_available:
+                self.targets.append(("update", self.target_document,
+                                     "Replace previous export in %s" % self.target_document))
+            self.targets.append(("new", "", "New FreeCAD document"))
+        self.default_target = default_target
         self._checks = {}
         self.setModal(True)
         self.setWindowTitle("Export STEP" if self.destination == "step" else "Export to FreeCAD")
@@ -336,11 +343,15 @@ class Export3DDialog(QtWidgets.QDialog):
         model_count = int(self.counts.get("models", 0))
         missing = int(self.counts.get("missing_models", 0))
         model_text = "%d placed" % model_count
+        boxes = int(self.counts.get("model_boxes", 0))
+        if boxes:
+            model_text += " · %d as box%s" % (boxes, "" if boxes == 1 else "es")
         if missing:
             model_text += " · %d missing" % missing
         self._add_option(
             "models", "Component 3D models",
-            "Placed STEP models are loaded as exact B-Rep where the source allows it.",
+            "Placed STEP models are loaded as exact B-Rep where the source allows it; "
+            "components shown as boxes in 3D export as their bounding boxes.",
             model_text, model_count > 0)
 
         sep = QtWidgets.QFrame()
@@ -375,11 +386,31 @@ class Export3DDialog(QtWidgets.QDialog):
             sep2.setFrameShape(QtWidgets.QFrame.HLine)
             sep2.setObjectName("separator")
             self.rows.addWidget(sep2)
-            self._add_option(
-                "update_existing", "Update existing FreeCAD document",
-                "Refresh only the managed Elec3D PCB Export part; keep the same FreeCAD tab and unrelated user objects.",
-                self.target_document if self.target_available else "no linked document yet",
-                self.target_available)
+            target_row = QtWidgets.QWidget()
+            tr = QtWidgets.QHBoxLayout(target_row)
+            tr.setContentsMargins(8, 6, 8, 6)
+            tr.setSpacing(10)
+            caption = QtWidgets.QLabel("Put the export in")
+            caption.setObjectName("propertyKind")
+            tr.addWidget(caption)
+            self.target_combo = NoWheelComboBox()
+            self.target_combo.setMinimumWidth(300)
+            for mode, document, text in self.targets:
+                self.target_combo.addItem(text, (mode, document))
+            index = 0
+            for i, (mode, document, _text) in enumerate(self.targets):
+                if self.default_target and (mode, document) == tuple(self.default_target):
+                    index = i
+                    break
+            self.target_combo.setCurrentIndex(index)
+            self.target_combo.setToolTip(
+                "Replace: refresh the previous Elec3D export part in place.\n"
+                "Add: put this export into that document as an additional part, "
+                "keeping everything already there.\n"
+                "New: create a separate FreeCAD document.")
+            self.target_combo.currentIndexChanged.connect(lambda _i: self._sync())
+            tr.addWidget(self.target_combo, 1)
+            self.rows.addWidget(target_row)
 
         outer.addSpacing(5)
         buttons = QtWidgets.QHBoxLayout()
@@ -464,17 +495,20 @@ class Export3DDialog(QtWidgets.QDialog):
         opts = self.selected_options()
         try:
             from .export3d import export_file_name
+            target = opts.get("freecad_target") or {}
             if self.destination == "step":
                 subtitle = export_file_name(opts)
-            elif opts.get("update_existing") and self.target_available:
-                subtitle = self.target_document
+            elif target.get("mode") in ("update", "add"):
+                subtitle = target.get("document", "")
             else:
                 subtitle = "NEW FREECAD DOCUMENT"
         except Exception:
             subtitle = ""
         self.subtitle.setText(subtitle)
         if self.destination == "freecad":
-            self.go.setText("Update in FreeCAD" if opts.get("update_existing") else "Create in FreeCAD")
+            mode = (opts.get("freecad_target") or {}).get("mode")
+            self.go.setText({"update": "Replace in FreeCAD", "add": "Add to FreeCAD"}.get(
+                mode, "Create in FreeCAD"))
 
     def selected_options(self):
         result = dict(self.options)
@@ -488,6 +522,12 @@ class Export3DDialog(QtWidgets.QDialog):
             result[key] = bool(check.isChecked())
         if result.get("negative"):
             result["fuse"] = True
+        combo = getattr(self, "target_combo", None)
+        if combo is not None and combo.currentData() is not None:
+            mode, document = combo.currentData()
+            result["freecad_target"] = {"mode": mode, "document": document}
+            result["freecad_target_mode"] = mode
+        result.pop("update_existing", None)
         return result
 
 
@@ -869,6 +909,7 @@ class Viewer2D(QtWidgets.QWidget):
         # Re-export updates this document by default instead of creating tabs
         # indefinitely; a new board/design clears the link.
         self._freecad_export_document = ""
+        self._freecad_export_root = ""
         self.show_ratsnest = True
         self.view_mode = "2d"
         self._ratsnest_item = None
@@ -1030,6 +1071,7 @@ class Viewer2D(QtWidgets.QWidget):
         self.view_stack.addWidget(self.page_2d)
         self.view3d = Board3DView(theme=self.theme)
         self.view3d.footprintSelected.connect(self._on_3d_selection)
+        self.view3d.modelDisplayRequested.connect(self.set_all_model_display)
         self.view_stack.addWidget(self.view3d)
         split.addWidget(self.view_stack, 1)
 
@@ -2154,11 +2196,23 @@ class Viewer2D(QtWidgets.QWidget):
         # Shown only in 3D for one selected footprint.  This mirrors the
         # reference web viewer: Auto keeps the model centred/seated; Manual
         # exposes X/Y/Z nudges plus explicit Align Z / Center XY actions.
-        self.sec_model_adjust = Section("3D model offset")
+        self.sec_model_adjust = Section("3D model")
         self.sec_model_adjust.setMinimumWidth(0)
         self.sec_model_adjust.setSizePolicy(SIZE_IGNORED, SIZE_PREFERRED)
         self.sec_model_adjust.body.setMinimumWidth(0)
         self.sec_model_adjust.body.setSizePolicy(SIZE_IGNORED, SIZE_PREFERRED)
+        self.model_display_combo = NoWheelComboBox()
+        self.model_display_combo.addItem("Model", "model")
+        self.model_display_combo.addItem("Bounding box", "box")
+        self.model_display_combo.setMinimumWidth(0)
+        self.model_display_combo.setMaximumWidth(108)
+        self.model_display_combo.setSizePolicy(SIZE_EXPANDING, SIZE_FIXED)
+        self.model_display_combo.setToolTip(
+            "Show this component as its 3D model or as its bounding box. "
+            "STEP/FreeCAD export uses the same choice.")
+        self.model_display_combo.activated.connect(self._on_model_display_combo)
+        self.sec_model_adjust.add(ControlRow("show as", self.model_display_combo))
+
         self.model_adjust_mode = NoWheelComboBox()
         self.model_adjust_mode.addItem("Auto", "auto")
         self.model_adjust_mode.addItem("Manual", "manual")
@@ -2779,6 +2833,7 @@ class Viewer2D(QtWidgets.QWidget):
                 "model_adjust": dict(entry.get("model_adjust") or
                                      {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": str(entry.get("model_adjust_mode", "auto")),
+                "model_display": str(entry.get("model_display", "model")),
             })
 
         netlist = None
@@ -2889,6 +2944,7 @@ class Viewer2D(QtWidgets.QWidget):
             "placeholder": bool(placeholder),
             "model_adjust": {"x": 0.0, "y": 0.0, "z": 0.0},
             "model_adjust_mode": "auto",
+            "model_display": "model",
         }
         self._entries.append(entry)
         self._apply_design_layers()
@@ -2910,10 +2966,12 @@ class Viewer2D(QtWidgets.QWidget):
         self._design_resource_file = ""
         self._design_path_variables = {}
         self._freecad_export_document = ""
+        self._freecad_export_root = ""
         self._refresh_window_title()
 
     def clear(self, keep_design_path=False):
         self._freecad_export_document = ""
+        self._freecad_export_root = ""
         if not keep_design_path:
             self._reset_design_identity()
         self.canvas.clear_footprints()
@@ -3099,6 +3157,7 @@ class Viewer2D(QtWidgets.QWidget):
                 "model_adjust": dict(entry.get("model_adjust") or
                                      {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
+                "model_display": entry.get("model_display", "model"),
             })
 
         center = self.canvas.mapToScene(self.canvas.viewport().rect().center())
@@ -3906,6 +3965,7 @@ class Viewer2D(QtWidgets.QWidget):
             entry["model_adjust"] = dict(saved.get("model_adjust") or
                                          {"x": 0.0, "y": 0.0, "z": 0.0})
             entry["model_adjust_mode"] = saved.get("model_adjust_mode", "auto")
+            entry["model_display"] = saved.get("model_display", "model")
 
         self._apply_design_layers()
         self._rebuild_footprint_list()
@@ -5192,6 +5252,7 @@ class Viewer2D(QtWidgets.QWidget):
             "placeholder": bool(entry.get("placeholder", False)),
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
+            "model_display": entry.get("model_display", "model"),
         }
 
     def _rebuild_after_entry_change(self):
@@ -5262,6 +5323,7 @@ class Viewer2D(QtWidgets.QWidget):
                 "placeholder": bool(saved.get("placeholder", False)),
                 "model_adjust": dict(saved.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
                 "model_adjust_mode": saved.get("model_adjust_mode", "auto"),
+                "model_display": saved.get("model_display", "model"),
             }
             index = max(0, min(int(saved["index"]), len(self._entries)))
             self._entries.insert(index, entry)
@@ -5692,6 +5754,8 @@ class Viewer2D(QtWidgets.QWidget):
                                              command.get("active"))
             elif command.get("kind") == "board_solid":
                 self._apply_board_state(command.get("before", {}))
+            elif command.get("kind") == "model_display":
+                self._apply_model_display_state(command.get("before", {}))
             elif command.get("kind") == "model_adjust":
                 self._apply_model_adjust_state(command.get("before", {}))
             elif command.get("kind") == "copper":
@@ -5724,6 +5788,8 @@ class Viewer2D(QtWidgets.QWidget):
                 self._delete_uids(command.get("selection", []))
             elif command.get("kind") == "board_solid":
                 self._apply_board_state(command.get("after", {}))
+            elif command.get("kind") == "model_display":
+                self._apply_model_display_state(command.get("after", {}))
             elif command.get("kind") == "model_adjust":
                 self._apply_model_adjust_state(command.get("after", {}))
             elif command.get("kind") == "copper":
@@ -7518,21 +7584,56 @@ class Viewer2D(QtWidgets.QWidget):
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "3D export", str(exc))
             return None
-        target_document = ""
-        target_available = False
+        targets, default_target = [], None
         if destination == "freecad":
-            target_document = self._freecad_export_document
-            target_available = export3d.document_is_open(target_document)
-            if target_document and not target_available:
-                self._freecad_export_document = ""
-                target_document = ""
+            targets, default_target = self._freecad_export_targets()
         dialog = Export3DDialog(
             counts, self._export_options, destination, self,
-            target_document=target_document, target_available=target_available)
+            targets=targets, default_target=default_target)
         if not exec_dialog(dialog):
             return None
         self._export_options = dialog.selected_options()
         return dict(self._export_options)
+
+    def _freecad_export_targets(self):
+        """Choices for *Export to FreeCAD*: replace / add to an open document / new."""
+        from . import export3d
+        linked = self._freecad_export_document
+        if linked and not export3d.document_is_open(linked):
+            self._freecad_export_document = linked = ""
+            self._freecad_export_root = ""
+        documents = export3d.open_documents()
+        labels = dict(documents)
+        targets = []
+        if linked and export3d.document_has_export(linked, self._freecad_export_root):
+            targets.append(("update", linked, "Replace previous export in “%s”"
+                            % labels.get(linked, linked)))
+        # The linked document first, then the others.
+        ordered = sorted(documents, key=lambda d: (d[0] != linked, d[1].lower()))
+        for name, label in ordered:
+            targets.append(("add", name, "Add as a new part to “%s”" % label))
+        targets.append(("new", "", "New FreeCAD document"))
+
+        wanted = self._export_options.get("freecad_target_mode")
+        available = [(mode, doc) for mode, doc, _text in targets]
+        default = None
+        if wanted == "add":
+            preferred = linked or self._active_freecad_document()
+            if ("add", preferred) in available:
+                default = ("add", preferred)
+        elif wanted == "new":
+            default = ("new", "")
+        if default is None:
+            default = ("update", linked) if ("update", linked) in available else ("new", "")
+        return targets, default
+
+    @staticmethod
+    def _active_freecad_document():
+        try:
+            import FreeCAD as App
+            return str(App.ActiveDocument.Name) if App.ActiveDocument is not None else ""
+        except Exception:
+            return ""
 
     def _export_source_name(self):
         if self._design_file:
@@ -7604,8 +7705,9 @@ class Viewer2D(QtWidgets.QWidget):
                 self.board_solid,
                 self.tracks, self.vias, self.models_folder, opts,
                 source_name=self._export_source_name(), progress=self._export_progress,
-                target_document=self._freecad_export_document,
-                update_existing=bool(opts.get("update_existing")))
+                target_document=(opts.get("freecad_target") or {}).get("document", ""),
+                mode=(opts.get("freecad_target") or {}).get("mode", "new"),
+                target_root=self._freecad_export_root)
         except Exception as exc:
             QtWidgets.QMessageBox.critical(self, "Export to FreeCAD", str(exc))
             return False
@@ -7613,12 +7715,13 @@ class Viewer2D(QtWidgets.QWidget):
             QtWidgets.QApplication.restoreOverrideCursor()
         doc = result.get("document")
         self._freecad_export_document = getattr(doc, "Name", "") or ""
+        self._freecad_export_root = getattr(result.get("root"), "Name", "") or ""
         try:
             from . import viewer as viewerhost
             viewerhost.keep_viewer_tab_available()
         except Exception:
             pass
-        verb = "Updated" if result.get("updated") else "Created"
+        verb = {"update": "Updated", "add": "Added to"}.get(result.get("mode"), "Created")
         message = "%s FreeCAD document %s · %d part%s" % (
             verb, getattr(doc, "Label", None) or getattr(doc, "Name", "PCB Export"),
             int(result.get("parts", 0)), "" if int(result.get("parts", 0)) == 1 else "s")
@@ -7668,6 +7771,7 @@ class Viewer2D(QtWidgets.QWidget):
             "layer_visibility": dict(getattr(item, "layer_visibility", {})),
             "model_adjust": dict(entry.get("model_adjust") or {"x": 0.0, "y": 0.0, "z": 0.0}),
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
+            "model_display": entry.get("model_display", "model"),
         }
 
     def _refresh_3d_if_visible(self, force=False, auto_align=True):
@@ -7677,6 +7781,7 @@ class Viewer2D(QtWidgets.QWidget):
             [self._entry_3d_state(e) for e in self._entries], self.stack,
             self.board_solid,
             self.models_folder, force=force, routed={"tracks": self.tracks, "vias": self.vias})
+        self._sync_model_display_controls()
         primary = self._active if self._active in self._property_targets() else (self._property_targets()[0] if self._property_targets() else None)
         self.view3d.set_selected(primary.get("uid") if primary is not None else None)
         if auto_align:
@@ -7755,6 +7860,8 @@ class Viewer2D(QtWidgets.QWidget):
             return
         self._updating_model_adjust = True
         try:
+            display = self.model_display_combo.findData(entry.get("model_display", "model"))
+            self.model_display_combo.setCurrentIndex(max(0, display))
             mode = entry.get("model_adjust_mode", "auto")
             index = self.model_adjust_mode.findData(mode)
             self.model_adjust_mode.setCurrentIndex(max(0, index))
@@ -7837,6 +7944,62 @@ class Viewer2D(QtWidgets.QWidget):
         after = self._model_adjust_state(entry)
         self._push_model_adjust_history(before, after)
         self._update_model_adjust_section(entry)
+
+    # -- model display (3D model vs bounding box) -------------------------
+    def _model_display_state(self, entries=None):
+        return dict((str(e.get("uid")), str(e.get("model_display", "model")))
+                    for e in (self._entries if entries is None else entries))
+
+    def _apply_model_display_state(self, state):
+        for entry in self._entries:
+            mode = (state or {}).get(str(entry.get("uid")))
+            if mode in ("model", "box"):
+                entry["model_display"] = mode
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        self._sync_model_display_controls()
+
+    def _set_model_display(self, entries, mode):
+        mode = "box" if mode == "box" else "model"
+        entries = [e for e in entries if e.get("model_display", "model") != mode]
+        if not entries:
+            self._sync_model_display_controls()
+            return False
+        before = self._model_display_state(entries)
+        for entry in entries:
+            entry["model_display"] = mode
+        self._push_history({"kind": "model_display", "before": before,
+                            "after": self._model_display_state(entries)})
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        self._sync_model_display_controls()
+        self.refresh_modified_state()
+        count = len(entries)
+        self._flash_status("%d component%s shown as %s" % (
+            count, "" if count == 1 else "s", "bounding box" if mode == "box" else "3D model"))
+        return True
+
+    def set_all_model_display(self, mode):
+        """Toolbar *Boxes*: every component as its model or its bounding box."""
+        return self._set_model_display(list(self._entries), mode)
+
+    def _on_model_display_combo(self, _index):
+        targets = self._property_targets()
+        if targets:
+            self._set_model_display(targets, self.model_display_combo.currentData())
+
+    def _sync_model_display_controls(self):
+        button = getattr(getattr(self, "view3d", None), "btn_boxes", None)
+        if button is not None:
+            all_boxes = bool(self._entries) and all(
+                e.get("model_display", "model") == "box" for e in self._entries)
+            blocked = button.blockSignals(True)
+            button.setChecked(all_boxes)
+            button.blockSignals(blocked)
+        targets = self._property_targets()
+        if len(targets) == 1 and hasattr(self, "model_display_combo"):
+            index = self.model_display_combo.findData(targets[0].get("model_display", "model"))
+            blocked = self.model_display_combo.blockSignals(True)
+            self.model_display_combo.setCurrentIndex(max(0, index))
+            self.model_display_combo.blockSignals(blocked)
 
     def _align_model(self, axes):
         targets = self._property_targets()

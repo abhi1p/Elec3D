@@ -100,7 +100,7 @@ def export_counts(entries, stack, solid, tracks, vias, model_dir=""):
             visible_vias.append(via)
     visible_entries = [e for e in (entries or []) if _layer_visible(stack, e.get("design_layer_id"))]
     pads = sum(len(getattr(e.get("fp"), "pads", []) or []) for e in visible_entries)
-    models = missing = 0
+    models = missing = boxes = 0
     for entry in visible_entries:
         model = getattr(entry.get("fp"), "model", None)
         if model is None or not getattr(model, "path", ""):
@@ -108,6 +108,8 @@ def export_counts(entries, stack, solid, tracks, vias, model_dir=""):
         path = _resolve_model_path(model, model_dir)
         if path and path.lower().endswith((".step", ".stp")):
             models += 1
+            if str(entry.get("model_display", "model")) == "box":
+                boxes += 1
         else:
             missing += 1
     block = None
@@ -119,7 +121,8 @@ def export_counts(entries, stack, solid, tracks, vias, model_dir=""):
         except Exception:
             block = None
     return {"tracks": len(visible_tracks), "vias": len(visible_vias), "pads": pads,
-            "models": models, "missing_models": missing, "block": block}
+            "models": models, "missing_models": missing, "model_boxes": boxes,
+            "block": block}
 
 
 def _fc_modules():
@@ -259,6 +262,21 @@ def _scaled_shape(App, shape, scale):
             raise ExportError("component model scale could not be applied: %s" % exc)
 
 
+def _bounding_box_shape(Part, App, shape):
+    """Solid box of *shape*'s extents in its current (footprint-local) frame.
+
+    Taken before the footprint rotation, exactly like the 3D view's box, so
+    the exported box is aligned with the component rather than the board.
+    """
+    try:
+        bb = shape.optimalBoundingBox(True, False)
+    except Exception:
+        bb = shape.BoundBox
+    size = [max(1e-4, float(v)) for v in (bb.XLength, bb.YLength, bb.ZLength)]
+    return Part.makeBox(size[0], size[1], size[2],
+                        App.Vector(float(bb.XMin), float(bb.YMin), float(bb.ZMin)))
+
+
 def _model_shape(Part, App, path, entry, plane_z):
     model = getattr(entry.get("fp"), "model", None)
     if model is None:
@@ -281,6 +299,8 @@ def _model_shape(Part, App, path, entry, plane_z):
             shape.rotate(App.Vector(0, 0, 0), axis, angle)
     ox, oy, oz = [float(v) for v in (getattr(model, "offset", None) or (0.0, 0.0, 0.0))]
     shape.translate(App.Vector(ox, oy, oz))
+    if str(entry.get("model_display", "model")) == "box":
+        shape = _bounding_box_shape(Part, App, shape)
     fp_rotation = -float(entry.get("rotation", 0.0) or 0.0)
     if abs(fp_rotation) > 1e-12:
         shape.rotate(App.Vector(0, 0, 0), App.Vector(0, 0, 1), fp_rotation)
@@ -447,6 +467,9 @@ def build_records(entries, stack, solid, tracks, vias, model_dir, opts, progress
                                 (name, os.path.basename(path))); continue
             try:
                 shape = _model_shape(Part, App, path, entry, float(zmap.get(layer.id, 0.0)))
+                if str(entry.get("model_display", "model")) == "box":
+                    records.append(_record(shape, name + "_Box", MODEL_COLOR, name))
+                    continue
                 colors = stepcolor.read_step_colors(path)
                 neutral = _rgb_tuple(MODEL_COLOR)
                 face_colors = [colors.color_for(i) or neutral
@@ -499,8 +522,19 @@ def _apply_object_style(obj, color, face_colors=None):
             pass
 
 
-def _find_export_root(doc):
-    """Return the add-on-managed export root in *doc*, if one exists."""
+def _find_export_root(doc, name=""):
+    """Return the add-on-managed export root in *doc*, if one exists.
+
+    With *name* the specific export part created earlier is returned (a
+    document may hold several exports added side by side).
+    """
+    if name:
+        try:
+            obj = doc.getObject(str(name))
+        except Exception:
+            obj = None
+        if obj is not None:
+            return obj
     for obj in list(getattr(doc, "Objects", []) or []):
         try:
             if bool(getattr(obj, "Elec3DManaged", False)):
@@ -535,10 +569,12 @@ def _clear_export_contents(doc, root):
         pass
 
 
-def _populate_document(doc, records, source_name="", root=None):
+def _populate_document(doc, records, source_name="", root=None, label="Elec3D PCB Export"):
     if root is None:
         root = doc.addObject("App::Part", "Elec3DExport")
-    root.Label = "Elec3D PCB Export"
+        root.Label = label
+    elif not str(getattr(root, "Label", "") or ""):
+        root.Label = label
     try:
         if "Elec3DManaged" not in list(getattr(root, "PropertiesList", []) or []):
             root.addProperty("App::PropertyBool", "Elec3DManaged", "KiCad",
@@ -613,26 +649,67 @@ def _get_document(App, name):
         return None
 
 
+def open_documents():
+    """``[(name, label), ...]`` of open, visible FreeCAD documents."""
+    try:
+        import FreeCAD as App
+        docs = App.listDocuments()
+    except Exception:
+        return []
+    result = []
+    for name, doc in docs.items():
+        try:
+            if getattr(doc, "Temporary", False) or getattr(doc, "Hidden", False):
+                continue
+        except Exception:
+            pass
+        result.append((str(name), str(getattr(doc, "Label", "") or name)))
+    return result
+
+
+def document_has_export(doc_name, root_name=""):
+    """Whether *doc_name* is open and holds an Elec3D export part."""
+    try:
+        import FreeCAD as App
+    except Exception:
+        return False
+    doc = _get_document(App, doc_name)
+    return bool(doc is not None and _find_export_root(doc, root_name) is not None)
+
+
 def create_freecad_document(entries, stack, solid, tracks, vias, model_dir, opts,
                             source_name="", progress=None, target_document="",
-                            update_existing=True):
-    """Create or refresh the FreeCAD document linked to the current board.
+                            update_existing=True, mode=None, target_root=""):
+    """Put the exported board into FreeCAD.
 
-    When ``target_document`` is still open and ``update_existing`` is true,
-    only the objects inside the add-on-managed ``Elec3D PCB Export`` part are
-    replaced.  The document/tab itself and unrelated user objects are kept.
+    ``mode``:
+
+    ``"update"``  replace the contents of the Elec3D export part (*target_root*,
+                  or the first one found) in ``target_document``; the tab, its
+                  save path and unrelated objects are kept.
+    ``"add"``     add the export as a *new* part to ``target_document`` next to
+                  whatever is already there (several exports in one tab).
+    ``"new"``     create a new document.
+
+    Without ``mode`` the historical ``update_existing`` flag decides between
+    ``"update"`` and ``"new"``.
     """
     App, _Part = _fc_modules()
+    if mode not in ("update", "add", "new"):
+        mode = "update" if update_existing else "new"
     records, warnings = build_records(entries, stack, solid, tracks, vias,
                                       model_dir, opts, progress=progress)
     if not records:
         raise ExportError("Nothing to export.")
 
-    doc = _get_document(App, target_document) if update_existing else None
-    updated = doc is not None
+    doc = _get_document(App, target_document) if mode in ("update", "add") else None
     created = False
     root = None
     if doc is None:
+        if mode in ("update", "add") and target_document:
+            warnings.append("FreeCAD document %s is no longer open; a new document was created."
+                            % target_document)
+        mode = "new"
         base = _document_name(source_name)
         name = base
         n = 2
@@ -640,17 +717,22 @@ def create_freecad_document(entries, stack, solid, tracks, vias, model_dir, opts
             name = "%s_%d" % (base, n); n += 1
         doc = App.newDocument(name)
         created = True
-    else:
-        root = _find_export_root(doc)
+    elif mode == "update":
+        root = _find_export_root(doc, target_root)
         if root is not None:
             _clear_export_contents(doc, root)
+
+    label = "Elec3D PCB Export"
+    if mode == "add":
+        base = os.path.splitext(os.path.basename(source_name or ""))[0]
+        label = "%s Export" % base if base else label
 
     try:
         App.setActiveDocument(doc.Name)
     except Exception:
         pass
     try:
-        root, objects = _populate_document(doc, records, source_name, root=root)
+        root, objects = _populate_document(doc, records, source_name, root=root, label=label)
     except Exception:
         # Never destroy a pre-existing user document on an update failure.
         if created:
@@ -671,8 +753,9 @@ def create_freecad_document(entries, stack, solid, tracks, vias, model_dir, opts
     except Exception:
         pass
     return {"document": doc, "root": root, "objects": objects,
-            "warnings": warnings, "parts": len(objects),
-            "updated": bool(updated), "created": bool(created)}
+            "warnings": warnings, "parts": len(objects), "mode": mode,
+            "updated": mode == "update", "added": mode == "add",
+            "created": bool(created)}
 
 
 def export_step(entries, stack, solid, tracks, vias, model_dir, opts, path,
