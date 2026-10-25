@@ -17,7 +17,7 @@ import json
 import hashlib
 import time as _time
 
-from . import __version__, PREF_PATH
+from . import __version__, PREF_PATH, REPOSITORY_URL, ISSUES_URL
 from . import layers as layermod
 from . import theme as thememod
 from .options import DEFAULT_SIDEBAR_ORDER, normalize_sidebar_order
@@ -1382,6 +1382,12 @@ class Viewer2D(QtWidgets.QWidget):
             self.act_close_project.setToolTip("Close the current project, prompting to save unsaved changes")
             self.act_close_project.triggered.connect(self.close_project)
 
+            self.act_open_project_folder = self.menu_file.addAction("Open Project Folder")
+            self.act_open_project_folder.setToolTip(
+                "Show the folder of the current project in the system file manager")
+            self.act_open_project_folder.setEnabled(False)
+            self.act_open_project_folder.triggered.connect(self.open_project_folder)
+
             self.menu_file.addSeparator()
             self.act_clear_design = self.menu_file.addAction("Clear design")
             self.act_clear_design.setToolTip(
@@ -1471,6 +1477,18 @@ class Viewer2D(QtWidgets.QWidget):
             self.act_drc_check.setToolTip("Run a full-board design-rule check and display all violations")
             self.act_drc_check.triggered.connect(self.run_drc_check)
 
+            self.menu_about = QtWidgets.QMenu(self)
+            self.act_report_bug = self.menu_about.addAction("Report a Bug…")
+            self.act_report_bug.setToolTip(
+                "Open a new issue on the Elec3D GitHub page, with your versions filled in")
+            self.act_report_bug.triggered.connect(self.report_bug)
+            self.act_github = self.menu_about.addAction("Elec3D on GitHub")
+            self.act_github.setToolTip(REPOSITORY_URL)
+            self.act_github.triggered.connect(lambda: self._open_url(REPOSITORY_URL))
+            self.menu_about.addSeparator()
+            self.act_about = self.menu_about.addAction("About Elec3D…")
+            self.act_about.triggered.connect(self.show_about_dialog)
+
             # Use a normal push button and open the menu ourselves.  Native
             # QToolButton popup indicators vary considerably between FreeCAD
             # styles (the Windows style can look like two tiny chevrons sitting
@@ -1494,6 +1512,12 @@ class Viewer2D(QtWidgets.QWidget):
             self.btn_tools.setToolTip("Design verification tools")
             self.btn_tools.clicked.connect(self._show_tools_menu)
             row.addWidget(self.btn_tools)
+
+            self.btn_about = QtWidgets.QPushButton("About  ▾")
+            self.btn_about.setObjectName("fileMenuButton")
+            self.btn_about.setToolTip("Report a bug, project page and version")
+            self.btn_about.clicked.connect(self._show_about_menu)
+            row.addWidget(self.btn_about)
 
         self.btn_2d = QtWidgets.QPushButton("2D")
         self.btn_2d.setCheckable(True)
@@ -1583,6 +1607,94 @@ class Viewer2D(QtWidgets.QWidget):
         menu.adjustSize()
         pos = button.mapToGlobal(QtCore.QPoint(0, button.height() + 4))
         menu.popup(pos)
+
+    def _show_about_menu(self):
+        menu = getattr(self, "menu_about", None)
+        button = getattr(self, "btn_about", None)
+        if menu is None or button is None:
+            return
+        menu.adjustSize()
+        pos = button.mapToGlobal(QtCore.QPoint(0, button.height() + 4))
+        menu.popup(pos)
+
+    # -- About / help ---------------------------------------------------------
+    @staticmethod
+    def _open_url(url):
+        """Open *url* (web page or local folder) with the desktop's handler."""
+        if isinstance(url, str):
+            url = QtCore.QUrl(url)
+        return bool(QtGui.QDesktopServices.openUrl(url))
+
+    @staticmethod
+    def _environment_summary():
+        """Versions worth quoting in a bug report."""
+        import platform
+        from .qt import QT_BINDING
+        lines = ["- Elec3D: %s" % __version__]
+        try:
+            import FreeCAD
+            version = FreeCAD.Version()
+            lines.append("- FreeCAD: %s" % ".".join(str(v) for v in version[:3]))
+        except Exception:
+            lines.append("- FreeCAD: (not running inside FreeCAD)")
+        lines.append("- Qt: %s (%s)" % (QtCore.qVersion(), QT_BINDING))
+        lines.append("- Python: %s" % platform.python_version())
+        lines.append("- OS: %s" % platform.platform())
+        return "\n".join(lines)
+
+    def bug_report_url(self):
+        """New-issue URL on GitHub with the environment pre-filled."""
+        body = ("**What happened?**\n\n\n"
+                "**Steps to reproduce**\n1. \n2. \n\n"
+                "**What did you expect?**\n\n\n"
+                "**Environment**\n" + self._environment_summary() + "\n")
+        # Percent-encode everything ourselves: QUrlQuery leaves "+", "&" and
+        # "#" alone, and any of those in a version string would break the body.
+        from urllib.parse import quote
+        return QtCore.QUrl.fromEncoded(
+            (ISSUES_URL + "/new?body=" + quote(body, safe="")).encode("ascii"))
+
+    def report_bug(self):
+        """About > Report a Bug…: open a pre-filled GitHub issue."""
+        if self._open_url(self.bug_report_url()):
+            self._flash_status("Opened the Elec3D issue page in your browser")
+            return True
+        QtWidgets.QMessageBox.information(
+            self, "Report a Bug",
+            "Your browser could not be opened. Please report the bug at:\n%s" % ISSUES_URL)
+        return False
+
+    def show_about_dialog(self):
+        box = QtWidgets.QMessageBox(self)
+        box.setWindowTitle("About Elec3D")
+        box.setTextFormat(enum(Qt, "TextFormat", "RichText"))
+        box.setText(
+            "<b>Elec3D</b> %s<br>KiCad footprints and netlists in a 2D/3D board "
+            "editor for FreeCAD.<br><br>"
+            "<a href=\"%s\">%s</a><br>Licensed under LGPL-2.1-or-later."
+            % (__version__, REPOSITORY_URL, REPOSITORY_URL))
+        box.setInformativeText(self._environment_summary().replace("- ", ""))
+        exec_dialog(box)
+
+    def project_folder(self):
+        """Folder of the open project (or loose board file); "" when unsaved."""
+        path = self._project_file or self._design_file
+        if not path:
+            return ""
+        folder = os.path.dirname(os.path.abspath(path))
+        return folder if os.path.isdir(folder) else ""
+
+    def open_project_folder(self):
+        """File > Open Project Folder: show it in the system file manager."""
+        folder = self.project_folder()
+        if not folder:
+            self._flash_status("Save the project first: it has no folder yet")
+            return False
+        if self._open_url(QtCore.QUrl.fromLocalFile(folder)):
+            return True
+        QtWidgets.QMessageBox.information(
+            self, "Open Project Folder", "The folder could not be opened:\n%s" % folder)
+        return False
 
     def _collect_drc_violations(self):
         """Return every unique full-board DRC violation using live editor rules.
@@ -2984,6 +3096,11 @@ class Viewer2D(QtWidgets.QWidget):
         close_action = getattr(self, "act_close_project", None)
         if close_action is not None:
             close_action.setEnabled(bool(self._project_file))
+        folder_action = getattr(self, "act_open_project_folder", None)
+        if folder_action is not None:
+            folder_action.setEnabled(bool(self._project_file or self._design_file))
+            folder = self.project_folder()
+            folder_action.setToolTip(folder or "Save the project first: it has no folder yet")
 
     def refresh_modified_state(self):
         """Refresh and return whether persistent design content is unsaved."""

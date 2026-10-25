@@ -193,9 +193,10 @@ The rest of the UI provides:
 - hidden-text control
 - zoom/pan/fit
 - keyboard editing: Ctrl+Z/Ctrl+Y undo/redo, R/Shift+R rotate, Delete removes the selected track segment/object, and U promotes routed copper to complete-route selection
-- a **File** menu in the viewer header for project create/open/save/close, import, reload, 3D-model and export actions
+- a **File** menu in the viewer header for project create/open/save/close, *Open Project Folder* (shows it in your file manager), import, reload, 3D-model and export actions
 - an **Edit** menu for undo/redo, Design Rules, Stackup and Preferences, with Preferences kept last
 - a **Tools → DRC Check…** command for an explicit whole-board design-rule report
+- an **About** menu: *Report a Bug…* opens a new GitHub issue with your Elec3D, FreeCAD, Qt, Python and OS versions filled in; *Elec3D on GitHub*; *About Elec3D…*
 - always-visible add-on version number in the viewer header
 - automatic light/dark appearance matching the current FreeCAD theme
 

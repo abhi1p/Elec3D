@@ -4,6 +4,16 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.22.0
+
+- **About menu** in the editor header: **Report a Bug…** opens a new issue on
+  the Elec3D GitHub page with the Elec3D, FreeCAD, Qt, Python and OS versions
+  already filled in; **Elec3D on GitHub** opens the project page; **About
+  Elec3D…** shows the version and licence.
+- **File → Open Project Folder** shows the current project's folder in the
+  system file manager (Explorer, Finder, …). Enabled once the design has been
+  saved; the tooltip shows the path.
+
 ## 0.21.1
 
 - **Fixed: "CommandView2D.Activated() takes 1 positional argument but 2 were

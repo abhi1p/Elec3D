@@ -12,9 +12,13 @@ outside FreeCAD; ``elec3d.builder`` and ``elec3d.commands`` need FreeCAD.
 
 import os
 
-__version__ = "0.21.1"
+__version__ = "0.22.0"
 
 PREF_PATH = "User parameter:BaseApp/Preferences/Mod/Elec3D"
+
+# Project home page; also listed in package.xml.
+REPOSITORY_URL = "https://github.com/abhi1p/Elec3D"
+ISSUES_URL = REPOSITORY_URL + "/issues"
 
 # This package always has a real __file__, unlike Init.py / InitGui.py which
 # FreeCAD exec's in a namespace where __file__ may be missing.  Everything that
