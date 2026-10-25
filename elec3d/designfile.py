@@ -19,6 +19,7 @@ import tempfile
 
 from . import sexpr
 from .sexpr import child, children
+from .design import box_margin_is_custom, margin_values
 
 __all__ = [
     "DESIGN_EXTENSION", "FORMAT_VERSION", "DesignFileError",
@@ -386,6 +387,10 @@ def dumps(data):
         lines.append("    (rule %s %s)" % (_q(key), _f(value)))
     lines.append("  )")
 
+    top, side = margin_values(data.get("box_margin"))
+    if top > 0.0 or side > 0.0:
+        lines.append("  (box_margin (top %s) (side %s))" % (_f(top), _f(side)))
+
     lines.append("  (footprints")
     for fp in data.get("footprints", []):
         lines.append("    (footprint")
@@ -417,11 +422,9 @@ def dumps(data):
             _f(adjust.get("y", 0.0)), _f(adjust.get("z", 0.0))))
         if str(fp.get("model_display", "model")) == "box":
             lines.append("      (model_display \"box\")")
-        margin = fp.get("box_margin") or {}
-        top = float(margin.get("top", 0.0) or 0.0)
-        side = float(margin.get("side", 0.0) or 0.0)
-        if top > 0.0 or side > 0.0:
-            lines.append("      (box_margin (top %s) (side %s))" % (_f(top), _f(side)))
+        if box_margin_is_custom(fp):
+            top, side = margin_values(fp.get("box_margin"))
+            lines.append("      (box_margin custom (top %s) (side %s))" % (_f(top), _f(side)))
         lines.append("    )")
     lines.append("  )")
 
@@ -566,6 +569,11 @@ def loads(text):
                      "active_id": _int(ln, "active", layers[0]["id"] if layers else 1),
                      "outline": outline, "layers": layers, "stackup": stackup}
 
+    gm = child(root, "box_margin")
+    if gm is not None:
+        top, side = margin_values({"top": _num(gm, "top", 0.0), "side": _num(gm, "side", 0.0)})
+        data["box_margin"] = {"top": top, "side": side}
+
     dr = child(root, "design_rules") or []
     for rule in children(dr, "rule"):
         if len(rule) >= 3:
@@ -596,8 +604,10 @@ def loads(text):
         }
         bm = child(node, "box_margin")
         if bm is not None:
-            fp["box_margin"] = {"top": max(0.0, _num(bm, "top", 0.0)),
-                                "side": max(0.0, _num(bm, "side", 0.0))}
+            top, side = margin_values({"top": _num(bm, "top", 0.0), "side": _num(bm, "side", 0.0)})
+            # 0.20.0 wrote per-component values without a mode: those were custom.
+            mode = bm[1] if len(bm) > 1 and bm[1] in ("global", "custom") else "custom"
+            fp["box_margin"] = {"mode": mode, "top": top, "side": side}
         for gl in children(node, "graphic_layer"):
             if len(gl) >= 3:
                 fp["layers"][gl[1]] = str(gl[2]).lower() == "yes"

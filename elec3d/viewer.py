@@ -635,6 +635,7 @@ def _snapshot_viewer_state(viewer):
         "selected_indexes": selected_indexes,
         "stack": viewer.stack.snapshot(),
         "design_rules": viewer.design_rules.snapshot(),
+        "box_margin": dict(getattr(viewer, "box_margin_default", {}) or {}),
         "fields_expanded": bool(viewer._fields_expanded),
         "grid_visible": bool(canvas.grid_visible),
         "grid_step": float(canvas.grid_step),
@@ -731,6 +732,8 @@ def _restore_viewer_state(viewer, state, restore_view=False):
     # design-layer id, and those ids only mean anything once the planes exist.
     viewer.stack.restore(state.get("stack"))
     viewer.design_rules.restore(state.get("design_rules"))
+    if state.get("box_margin") is not None:
+        viewer.box_margin_default = dict(state.get("box_margin"))
     viewer._fields_expanded = bool(state.get("fields_expanded", False))
     from .netlist import KiCadNetlist
     viewer.netlist = KiCadNetlist.restore(state.get("netlist")) if state.get("netlist") else None

@@ -134,31 +134,88 @@ class TestPanelModelDisplay(unittest.TestCase):
         states = self.viewer._export_entries()
         self.assertEqual([s["model_display"] for s in states], ["box", "model"])
 
-    def test_margins_are_one_undo_step_and_only_for_boxes(self):
+    def extent(self, entry):
+        return self.viewer._entry_3d_state(entry)["box_extent"]
+
+    def test_components_follow_the_global_margin_by_default(self):
         first, second = self.viewer._entries
-        self.viewer._set_model_display([first], "box")
-        self.assertTrue(self.viewer._set_box_margins([first], top=0.4, side=0.2))
-        self.assertEqual(first["box_margin"], {"top": 0.4, "side": 0.2})
-        self.assertFalse(self.viewer._set_box_margins([first], top=0.4))   # no change
+        self.viewer._set_model_display([first, second], "box")
+        self.assertTrue(self.viewer.set_global_box_margin(0.6, 0.2))
+        self.assertEqual([self.extent(e) for e in (first, second)], [(0.6, 0.2), (0.6, 0.2)])
         self.viewer.undo()
-        self.assertEqual(first.get("box_margin"), {"top": 0.0, "side": 0.0})
-        self.assertEqual(first["model_display"], "box")
+        self.assertEqual(self.extent(first), (0.0, 0.0))
         self.viewer.redo()
-        self.assertEqual(first["box_margin"], {"top": 0.4, "side": 0.2})
-        self.assertEqual(self.viewer._export_entries()[0]["box_margin"],
-                         {"top": 0.4, "side": 0.2})
-        self.assertFalse(second.get("box_margin"))
+        self.assertEqual(self.extent(first), (0.6, 0.2))
+        self.assertFalse(self.viewer.set_global_box_margin(0.6, 0.2))       # no change
+
+    def test_custom_overrides_global_and_survives_global_changes(self):
+        first, second = self.viewer._entries
+        self.viewer._set_model_display([first, second], "box")
+        self.viewer.set_global_box_margin(1.0, 0.5)
+        self.assertTrue(self.viewer._set_box_margin_mode([first], "custom"))
+        self.assertEqual(self.extent(first), (1.0, 0.5))                    # starts from global
+        self.viewer._set_box_margins([first], side=0.1)
+        self.viewer.set_global_box_margin(2.0, 2.0)
+        self.assertEqual(self.extent(first), (1.0, 0.1))
+        self.assertEqual(self.extent(second), (2.0, 2.0))
+        # Back to Global keeps the custom values for a later switch back.
+        self.viewer._set_box_margin_mode([first], "global")
+        self.assertEqual(self.extent(first), (2.0, 2.0))
+        self.viewer._set_box_margin_mode([first], "custom")
+        self.assertEqual(self.extent(first), (1.0, 0.1))
+        self.viewer.undo(); self.viewer.undo()
+        self.assertEqual(self.extent(first), (1.0, 0.1))
+        self.viewer.undo()                                                  # global 2.0 -> 1.0
+        self.viewer.undo()                                                  # side edit
+        self.assertEqual(self.extent(first), (1.0, 0.5))
+
+    def test_sidebar_shows_mode_and_only_custom_shows_fields(self):
+        first = self.viewer._entries[0]
+        self.viewer.set_view_mode("3d")
+        first["item"].setSelected(True)
+        self.viewer._refresh_properties()
+        self.assertTrue(self.viewer.box_margin_mode_row.isHidden())         # not a box
+        self.viewer._set_model_display([first], "box")
+        self.assertFalse(self.viewer.box_margin_mode_row.isHidden())
+        self.assertTrue(self.viewer.box_margin_row.isHidden())
+        self.assertFalse(self.viewer.box_margin_global_label.isHidden())
+        combo = self.viewer.box_margin_mode_combo
+        combo.setCurrentIndex(combo.findData("custom"))
+        combo.activated.emit(combo.currentIndex())
+        self.assertFalse(self.viewer.box_margin_row.isHidden())
+        self.assertTrue(self.viewer.box_margin_global_label.isHidden())
+        self.viewer.box_margin_spins["top"].setValue(0.7)
+        self.viewer.box_margin_spins["top"].editingFinished.emit()
+        self.assertEqual(self.extent(first), (0.7, 0.0))
+
+    def test_global_margin_marks_the_design_modified(self):
+        self.viewer._capture_saved_content_state()
+        self.viewer.refresh_modified_state()
+        self.assertFalse(self.viewer.is_modified())
+        self.viewer.set_global_box_margin(0.3, 0.0)
+        self.assertTrue(self.viewer.is_modified())
 
     def test_negative_margin_is_clamped(self):
         from elec3d.design import box_margins
         self.assertEqual(box_margins({"box_margin": {"top": -1, "side": "x"}}), (0.0, 0.0))
         self.assertEqual(box_margins({"box_margin": {"top": -1, "side": 2}}), (0.0, 2.0))
         self.assertEqual(box_margins({}), (0.0, 0.0))
+        self.assertEqual(box_margins({}, {"top": 1, "side": 2}), (1.0, 2.0))
+        global_mode = {"box_margin": {"mode": "global", "top": 5, "side": 5}}
+        self.assertEqual(box_margins(global_mode, {"top": 1, "side": 2}), (1.0, 2.0))
+
+    def test_020_per_component_margin_reads_as_custom(self):
+        text = designfile.dumps({"stack": {"layers": [], "stackup": {}}, "footprints": []})
+        data = designfile.loads(text.replace("  (footprints", "  (footprints\n    (footprint\n"
+                                             "      (uid \"a\")\n      (at 0 0 0)\n"
+                                             "      (box_margin (top 1) (side 2))\n    )", 1))
+        self.assertEqual(data["footprints"][0]["box_margin"], {"mode": "custom", "top": 1.0, "side": 2.0})
 
     def test_choice_survives_save_and_load(self):
         import tempfile, shutil
         self.viewer._set_model_display([self.viewer._entries[1]], "box")
         self.viewer._set_box_margins([self.viewer._entries[1]], top=1.5, side=0.3)
+        self.viewer.set_global_box_margin(0.25, 0.125)
         folder = tempfile.mkdtemp(prefix="e3d-display-")
         try:
             path = os.path.join(folder, "b.e3d_pcb")
@@ -166,13 +223,18 @@ class TestPanelModelDisplay(unittest.TestCase):
             with open(path, encoding="utf-8") as fh:
                 text = fh.read()
                 self.assertEqual(text.count('(model_display "box")'), 1)
-                self.assertEqual(text.count("(box_margin (top 1.5) (side 0.3))"), 1)
+                self.assertEqual(text.count("(box_margin custom (top 1.5) (side 0.3))"), 1)
+                self.assertEqual(text.count("  (box_margin (top 0.25) (side 0.125))"), 1)
             fresh = Viewer2D(theme="dark")
             try:
                 fresh.load_design_from(path)
                 self.assertEqual([e.get("model_display") for e in fresh._entries],
                                  ["model", "box"])
-                self.assertEqual(fresh._entries[1]["box_margin"], {"top": 1.5, "side": 0.3})
+                self.assertEqual(fresh._entries[1]["box_margin"],
+                                 {"mode": "custom", "top": 1.5, "side": 0.3})
+                self.assertEqual(fresh.box_margin_default, {"top": 0.25, "side": 0.125})
+                self.assertEqual(fresh._entry_3d_state(fresh._entries[0])["box_extent"],
+                                 (0.25, 0.125))
                 self.assertFalse(fresh._entries[0].get("box_margin"))
             finally:
                 fresh.deleteLater()

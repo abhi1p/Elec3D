@@ -21,7 +21,7 @@ from . import __version__, PREF_PATH
 from . import layers as layermod
 from . import theme as thememod
 from .options import DEFAULT_SIDEBAR_ORDER, normalize_sidebar_order
-from .design import LayerStack, box_margins
+from .design import LayerStack, box_margins, box_margin_is_custom, margin_values
 from . import boardsolid as boardsolidmod
 from .boardsolid import BoardSolid, BoardSolidError
 from .drc import DesignRules, RULE_LABELS
@@ -863,6 +863,8 @@ class Viewer2D(QtWidgets.QWidget):
         self._updating_model_adjust = False
         self._model_adjust_edit_before = None
         self._box_margin_edit_before = None
+        # Board-wide clearance for components shown as bounding boxes.
+        self.box_margin_default = {"top": 0.0, "side": 0.0}
         self._auto_aligning_models = False
         # 3D export choices persist for the viewer session so repeated exports
         # only need a destination click, matching the reference web app.
@@ -1454,6 +1456,10 @@ class Viewer2D(QtWidgets.QWidget):
             self.act_stackup_dialog = self.menu_edit.addAction("Stackup…")
             self.act_stackup_dialog.setToolTip("Edit copper thicknesses, separations and the bottom margin")
             self.act_stackup_dialog.triggered.connect(self.show_stackup_dialog)
+            self.act_box_margins = self.menu_edit.addAction("Box Margins…")
+            self.act_box_margins.setToolTip(
+                "Global clearance added to components shown as bounding boxes")
+            self.act_box_margins.triggered.connect(self.show_box_margin_dialog)
             self.menu_edit.addSeparator()
             self.act_options = self.menu_edit.addAction("Preferences…")
             self.act_options.setToolTip("Elec3D preferences")
@@ -1874,6 +1880,62 @@ class Viewer2D(QtWidgets.QWidget):
             self._flash_status("Design rules updated")
         return changed
 
+    def show_box_margin_dialog(self):
+        """Edit > Box Margins…: the board-wide bounding-box clearance."""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Box Margins")
+        dialog.setModal(True)
+        outer = QtWidgets.QVBoxLayout(dialog)
+        note = QtWidgets.QLabel(
+            "Clearance added to every component shown as a bounding box, unless "
+            "the component is set to a custom margin. Nothing is added below a "
+            "box. STEP and FreeCAD exports use the same boxes.")
+        note.setWordWrap(True); note.setObjectName("faint")
+        outer.addWidget(note)
+        form_host = QtWidgets.QWidget(dialog)
+        form = QtWidgets.QFormLayout(form_host)
+        form.setContentsMargins(0, 6, 0, 6)
+        form.setHorizontalSpacing(14); form.setVerticalSpacing(7)
+        top, side = margin_values(self.box_margin_default)
+        controls = {}
+        for key, label, value in (("top", "Top", top), ("side", "Sides", side)):
+            spin = NoWheelDoubleSpinBox(dialog)
+            spin.setDecimals(3); spin.setRange(0.0, 100.0); spin.setSingleStep(0.1)
+            spin.setSuffix(" mm")
+            spin.setValue(value)
+            spin.setMinimumWidth(120)
+            controls[key] = spin
+            form.addRow(label, spin)
+        outer.addWidget(form_host)
+        buttons = QtWidgets.QDialogButtonBox(
+            QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel, parent=dialog)
+        buttons.accepted.connect(dialog.accept); buttons.rejected.connect(dialog.reject)
+        outer.addWidget(buttons)
+        if not exec_dialog(dialog):
+            return False
+        return self.set_global_box_margin(controls["top"].value(), controls["side"].value())
+
+    def set_global_box_margin(self, top, side, history=True):
+        """Set the board-wide box margin; components set to Custom keep theirs."""
+        before = dict(zip(("top", "side"), margin_values(self.box_margin_default)))
+        after = dict(zip(("top", "side"), margin_values({"top": top, "side": side})))
+        if before == after:
+            return False
+        self.box_margin_default = after
+        if history:
+            self._push_history({"kind": "box_margin_global", "before": before, "after": after})
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        self._sync_box_margin_controls()
+        self.refresh_modified_state()
+        self._flash_status("Global box margin: top %g mm, sides %g mm" % (after["top"], after["side"]))
+        return True
+
+    def _apply_global_box_margin(self, margin):
+        top, side = margin_values(margin)
+        self.box_margin_default = {"top": top, "side": side}
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        self._sync_box_margin_controls()
+
     def show_stackup_dialog(self):
         """Edit the physical stack-up against the imported board solid.
 
@@ -2215,7 +2277,28 @@ class Viewer2D(QtWidgets.QWidget):
         self.sec_model_adjust.add(ControlRow("show as", self.model_display_combo))
 
         # Clearance around the bounding box: one value for the top face, one
-        # for the four sides.  The underside never moves.
+        # for the four sides.  The underside never moves.  A component uses
+        # the board's global margin (Edit > Box Margins…) unless set to Custom.
+        self.box_margin_mode_combo = NoWheelComboBox()
+        self.box_margin_mode_combo.addItem("Global", "global")
+        self.box_margin_mode_combo.addItem("Custom", "custom")
+        self.box_margin_mode_combo.setMinimumWidth(0)
+        self.box_margin_mode_combo.setMaximumWidth(108)
+        self.box_margin_mode_combo.setSizePolicy(SIZE_EXPANDING, SIZE_FIXED)
+        self.box_margin_mode_combo.setToolTip(
+            "Global uses the board's box margin (Edit > Box Margins…); "
+            "Custom sets this component's own margin.")
+        self.box_margin_mode_combo.activated.connect(self._on_box_margin_mode_combo)
+        self.box_margin_mode_row = ControlRow("margin", self.box_margin_mode_combo)
+        self.box_margin_mode_row.hide()
+        self.sec_model_adjust.add(self.box_margin_mode_row)
+        self.box_margin_global_label = QtWidgets.QLabel()
+        self.box_margin_global_label.setObjectName("faint")
+        self.box_margin_global_label.setWordWrap(True)
+        self.box_margin_global_label.setMinimumWidth(0)
+        self.box_margin_global_label.hide()
+        self.sec_model_adjust.add(self.box_margin_global_label)
+
         self.box_margin_row = QtWidgets.QWidget()
         self.box_margin_row.setMinimumWidth(0)
         self.box_margin_row.setSizePolicy(SIZE_IGNORED, SIZE_PREFERRED)
@@ -2872,6 +2955,7 @@ class Viewer2D(QtWidgets.QWidget):
         return {
             "stack": stack,
             "design_rules": self.design_rules.snapshot(),
+            "box_margin": dict(self.box_margin_default),
             "footprints": footprints,
             "board_solid": (list(self.board_solid.signature()) +
                             [self.board_solid.kind, str(self.board_solid.source.get("path") or "")]
@@ -3059,6 +3143,7 @@ class Viewer2D(QtWidgets.QWidget):
         self.clear()
         self.stack = LayerStack()
         self.design_rules = DesignRules()
+        self.box_margin_default = {"top": 0.0, "side": 0.0}
         self.models_folder = ""
         self.view3d.set_models_folder("")
         self.track_width = 0.25
@@ -3222,6 +3307,7 @@ class Viewer2D(QtWidgets.QWidget):
             "paths": variables,
             "stack": self.stack.snapshot(),
             "design_rules": self.design_rules.snapshot(),
+            "box_margin": dict(self.box_margin_default),
             "footprints": footprints,
             "board_solid": self._board_solid_snapshot(variables, path),
             "routing": self.routing_snapshot(),
@@ -3923,6 +4009,7 @@ class Viewer2D(QtWidgets.QWidget):
         self.stack = LayerStack()
         self.stack.restore(data.get("stack"))
         self.design_rules = DesignRules(data.get("design_rules"))
+        self.box_margin_default = dict(zip(("top", "side"), margin_values(data.get("box_margin"))))
         self.netlist = KiCadNetlist.restore(data.get("netlist")) if data.get("netlist") else None
         if self.netlist is not None and self.netlist.source_file:
             # Net connectivity is embedded.  An unresolved provenance path is
@@ -5787,6 +5874,8 @@ class Viewer2D(QtWidgets.QWidget):
                 self._apply_board_state(command.get("before", {}))
             elif command.get("kind") == "model_display":
                 self._apply_model_display_state(command.get("before", {}))
+            elif command.get("kind") == "box_margin_global":
+                self._apply_global_box_margin(command.get("before"))
             elif command.get("kind") == "model_adjust":
                 self._apply_model_adjust_state(command.get("before", {}))
             elif command.get("kind") == "copper":
@@ -5821,6 +5910,8 @@ class Viewer2D(QtWidgets.QWidget):
                 self._apply_board_state(command.get("after", {}))
             elif command.get("kind") == "model_display":
                 self._apply_model_display_state(command.get("after", {}))
+            elif command.get("kind") == "box_margin_global":
+                self._apply_global_box_margin(command.get("after"))
             elif command.get("kind") == "model_adjust":
                 self._apply_model_adjust_state(command.get("after", {}))
             elif command.get("kind") == "copper":
@@ -7804,6 +7895,7 @@ class Viewer2D(QtWidgets.QWidget):
             "model_adjust_mode": entry.get("model_adjust_mode", "auto"),
             "model_display": entry.get("model_display", "model"),
             "box_margin": dict(entry.get("box_margin") or {}),
+            "box_extent": box_margins(entry, self.box_margin_default),
         }
 
     def _refresh_3d_if_visible(self, force=False, auto_align=True):
@@ -7982,9 +8074,8 @@ class Viewer2D(QtWidgets.QWidget):
     def _model_display_state(self, entries=None):
         state = {}
         for e in (self._entries if entries is None else entries):
-            top, side = box_margins(e)
             state[str(e.get("uid"))] = {"mode": str(e.get("model_display", "model")),
-                                        "top": top, "side": side}
+                                        "margin": dict(e.get("box_margin") or {})}
         return state
 
     def _apply_model_display_state(self, state):
@@ -7996,24 +8087,24 @@ class Viewer2D(QtWidgets.QWidget):
                 continue
             if saved.get("mode") in ("model", "box"):
                 entry["model_display"] = saved["mode"]
-            if "top" in saved or "side" in saved:
-                entry["box_margin"] = {"top": float(saved.get("top", 0.0)),
-                                       "side": float(saved.get("side", 0.0))}
+            if "margin" in saved:
+                entry["box_margin"] = dict(saved.get("margin") or {})
         self._refresh_3d_if_visible(force=True, auto_align=False)
         self._sync_model_display_controls()
 
     # -- bounding-box margins ---------------------------------------------
     def _set_box_margins(self, entries, top=None, side=None, history=True):
-        """Set the box clearance of *entries*; ``None`` keeps a value as is."""
+        """Give *entries* a custom box clearance; ``None`` keeps a value as is."""
         entries = list(entries)
         before = self._model_display_state(entries)
         changed = False
         for entry in entries:
-            cur_top, cur_side = box_margins(entry)
+            custom = box_margin_is_custom(entry)
+            cur_top, cur_side = margin_values(entry.get("box_margin"))
             new_top = cur_top if top is None else max(0.0, float(top))
             new_side = cur_side if side is None else max(0.0, float(side))
-            if abs(new_top - cur_top) > 1e-9 or abs(new_side - cur_side) > 1e-9:
-                entry["box_margin"] = {"top": new_top, "side": new_side}
+            if not custom or abs(new_top - cur_top) > 1e-9 or abs(new_side - cur_side) > 1e-9:
+                entry["box_margin"] = {"mode": "custom", "top": new_top, "side": new_side}
                 changed = True
         if not changed:
             return False
@@ -8033,6 +8124,37 @@ class Viewer2D(QtWidgets.QWidget):
         if self._box_margin_edit_before is None:
             self._box_margin_edit_before = (targets, self._model_display_state(targets))
         self._set_box_margins(targets, **{key: value, "history": False})
+
+    def _set_box_margin_mode(self, entries, mode):
+        """Switch *entries* between the global margin and their own one.
+
+        Custom values are kept while a component follows the global margin, so
+        switching back restores them.  A component switched to Custom for the
+        first time starts from the current global values.
+        """
+        mode = "custom" if mode == "custom" else "global"
+        entries = [e for e in entries if box_margin_is_custom(e) != (mode == "custom")]
+        if not entries:
+            return False
+        before = self._model_display_state(entries)
+        for entry in entries:
+            margin = entry.get("box_margin") or {}
+            if mode == "custom" and not any(margin_values(margin)):
+                top, side = margin_values(self.box_margin_default)
+            else:
+                top, side = margin_values(margin)
+            entry["box_margin"] = {"mode": mode, "top": top, "side": side}
+        self._push_history({"kind": "model_display", "before": before,
+                            "after": self._model_display_state(entries)})
+        self._refresh_3d_if_visible(force=True, auto_align=False)
+        self._sync_box_margin_controls()
+        self.refresh_modified_state()
+        return True
+
+    def _on_box_margin_mode_combo(self, _index):
+        targets = [e for e in self._property_targets() if e.get("model_display", "model") == "box"]
+        if targets:
+            self._set_box_margin_mode(targets, self.box_margin_mode_combo.currentData())
 
     def _commit_box_margin_edit(self):
         pending = self._box_margin_edit_before
@@ -8094,13 +8216,23 @@ class Viewer2D(QtWidgets.QWidget):
             return
         targets = self._property_targets() if targets is None else targets
         boxes = [e for e in targets if e.get("model_display", "model") == "box"]
-        self.box_margin_row.setVisible(bool(boxes))
+        custom = bool(boxes) and box_margin_is_custom(boxes[0])
+        self.box_margin_mode_row.setVisible(bool(boxes))
+        self.box_margin_row.setVisible(custom)
+        self.box_margin_global_label.setVisible(bool(boxes) and not custom)
         if not boxes:
             return
-        top, side = box_margins(boxes[0])
+        top, side = box_margins(boxes[0], self.box_margin_default)
+        if not custom:
+            self.box_margin_global_label.setText(
+                "global: top %g mm · sides %g mm" % margin_values(self.box_margin_default))
         updating = self._updating_model_adjust
         self._updating_model_adjust = True
         try:
+            index = self.box_margin_mode_combo.findData("custom" if custom else "global")
+            blocked = self.box_margin_mode_combo.blockSignals(True)
+            self.box_margin_mode_combo.setCurrentIndex(max(0, index))
+            self.box_margin_mode_combo.blockSignals(blocked)
             for key, value in (("top", top), ("side", side)):
                 spin = self.box_margin_spins[key]
                 if abs(spin.value() - value) > 1e-9:

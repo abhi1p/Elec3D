@@ -4,6 +4,17 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.21.0
+
+- **Global box margin.** *Edit → Box Margins…* sets one board-wide clearance
+  (top and sides) for every component shown as a bounding box. It is undoable
+  and saved with the board.
+- **Per-component override.** Under *3D model*, a box component now has
+  **margin: Global / Custom**. Global follows the board value (shown as a hint);
+  Custom reveals *box top* / *box sides* for that component only. Switching
+  back to Global keeps the custom values for later. Per-component margins
+  saved by 0.20.0 open as Custom.
+
 ## 0.20.0
 
 - **Bounding-box margins.** A component shown as a box gets two clearance

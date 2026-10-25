@@ -72,10 +72,12 @@ extents in the footprint's own frame, so it rotates with the part, and Auto
 alignment is unaffected. STEP and FreeCAD exports use the same per-component
 choice, and it is saved with the project.
 
-A box can carry clearance: *box top* raises its top face and *box sides* widens
-it on all four sides (both in mm, shown under *show as* when the component is a
-box). The underside always stays on the model's lowest point, so a box never
-reaches into the board. Exports use the enlarged box.
+Boxes can carry clearance: a top margin raises the top face and a side margin
+widens the box on all four sides. The underside always stays on the model's
+lowest point, so a box never reaches into the board. Set the board-wide margin
+with *Edit → Box Margins…*; every box uses it unless its *3D model → margin* is
+switched from **Global** to **Custom**, which shows that component's own
+*box top* / *box sides* fields. Exports use the enlarged boxes.
 
 ## Viewer UI
 

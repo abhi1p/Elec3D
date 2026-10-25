@@ -46,19 +46,48 @@ DEFAULT_COPPER_THICKNESS_MM = 0.035
 DEFAULT_SEPARATION_MM = 1.6
 
 
-def box_margins(entry):
-    """``(top, side)`` clearance in mm added to a component's bounding box.
-
-    The box only grows upwards and outwards: its underside stays on the
-    model's lowest point, so a box never sinks into the board.
-    """
-    margin = (entry or {}).get("box_margin") or {}
+def margin_values(margin):
+    """``(top, side)`` of a ``{"top", "side"}`` mapping, clamped to >= 0."""
+    margin = margin or {}
     try:
         top = max(0.0, float(margin.get("top", 0.0) or 0.0))
         side = max(0.0, float(margin.get("side", 0.0) or 0.0))
     except (TypeError, ValueError, AttributeError):
         return 0.0, 0.0
     return top, side
+
+
+def box_margin_is_custom(entry):
+    """True when a component overrides the board's global box margin.
+
+    ``box_margin`` is ``{"mode": "global" | "custom", "top", "side"}``.  The
+    values are kept while the mode is *global* so switching back to *custom*
+    restores them.  A mapping without a mode (written by 0.20.0) was always a
+    per-component value, so it counts as custom when it is non-zero.
+    """
+    margin = (entry or {}).get("box_margin") or {}
+    mode = margin.get("mode") if isinstance(margin, dict) else None
+    if mode in ("global", "custom"):
+        return mode == "custom"
+    return any(margin_values(margin))
+
+
+def box_margins(entry, default=None):
+    """``(top, side)`` clearance in mm added to a component's bounding box.
+
+    *default* is the board's global margin, used unless the component has a
+    custom one.  Entries handed to the 3D view and the exporter carry the
+    already resolved value as ``box_extent``.  The box only grows upwards and
+    outwards: its underside stays on the model's lowest point, so a box never
+    sinks into the board.
+    """
+    entry = entry or {}
+    extent = entry.get("box_extent")
+    if extent is not None and len(extent) == 2:
+        return margin_values({"top": extent[0], "side": extent[1]})
+    if box_margin_is_custom(entry):
+        return margin_values(entry.get("box_margin"))
+    return margin_values(default)
 
 
 class DesignLayer(object):
