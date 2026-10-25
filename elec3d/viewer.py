@@ -365,8 +365,13 @@ def _sync_workbench_with_tab():
             _switch_workbench(previous)
 
 
-def _leave_elec3d_tab():
-    """The Elec3D tab is going away: hand back the previous workbench."""
+def _leave_elec3d_workbench():
+    """The editor is going away: hand back the previous workbench.
+
+    Applies to the tab and the separate window alike.  There is no Elec3D
+    menu to reopen the editor from, so leaving the workbench active with no
+    editor would strand the user: selecting Elec3D again would do nothing.
+    """
     previous = wbtrack.last_other()
     if previous and _active_workbench_name() == ELEC3D_WORKBENCH:
         QtCore.QTimer.singleShot(0, lambda: _switch_workbench(previous))
@@ -483,8 +488,8 @@ def _destroy_viewer(expected=None):
     _viewer = None
     _subwindow = None
     restore_panels()
-    if isinstance(host, QtWidgets.QMdiSubWindow) and _alive(host):
-        _leave_elec3d_tab()
+    if _alive(host) or _alive(viewer):
+        _leave_elec3d_workbench()
 
     if _alive(viewer):
         try:

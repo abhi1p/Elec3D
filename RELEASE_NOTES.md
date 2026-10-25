@@ -4,6 +4,18 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.21.1
+
+- **Fixed: "CommandView2D.Activated() takes 1 positional argument but 2 were
+  given".** The command declared a `Checkable` resource, which makes FreeCAD
+  pass an extra argument. Every command now accepts it.
+- **No Elec3D menu in FreeCAD any more.** The workbench adds no menu, toolbar
+  or context-menu entry; import, reload and preferences stay in the editor's
+  own File / Edit menus. The *Elec3D viewer* and *Fit current view* commands
+  (and their K-shortcuts) are gone.
+- **Closing the editor returns to the previous workbench** in Separate Window
+  mode too (tab mode already did), so selecting Elec3D again always reopens it.
+
 ## 0.21.0
 
 - **Global box margin.** *Edit → Box Margins…* sets one board-wide clearance

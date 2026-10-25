@@ -29,10 +29,11 @@ class Elec3DWorkbench(FreeCADGui.Workbench):
         # Normally installed from InitGui at start-up; repeat defensively.
         wbtrack.install()
 
-        names = commands.register()
-        # Frequent actions live directly in the viewer header; the menu remains
-        # for keyboard shortcuts and for reopening the viewer after it is closed.
-        self.appendMenu("Elec3D", names)
+        # The commands back the viewer's own File/Edit menus (Gui.runCommand);
+        # the workbench adds no menu, toolbar or context menu of its own.
+        # Selecting the workbench opens the editor, and closing the editor
+        # returns FreeCAD to the previous workbench, so it can be reopened.
+        commands.register()
         FreeCAD.Console.PrintLog("Elec3D workbench loaded\n")
 
     def Activated(self):
@@ -68,9 +69,6 @@ class Elec3DWorkbench(FreeCADGui.Workbench):
             deactivate_interaction()
         except Exception:
             pass
-
-    def ContextMenu(self, recipient):
-        self.appendContextMenu("Elec3D", ["Elec3D_Reload"])
 
     def GetClassName(self):
         return "Gui::PythonWorkbench"

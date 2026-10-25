@@ -44,7 +44,7 @@ class CommandImport(object):
     def IsActive(self):
         return True
 
-    def Activated(self):
+    def Activated(self, *_args):
         files, _ = QtWidgets.QFileDialog.getOpenFileNames(
             Gui.getMainWindow(), "Select KiCad footprint(s)", _last_dir(), FILTER)
         if not files:
@@ -76,7 +76,7 @@ class CommandImportNetlist(object):
     def IsActive(self):
         return True
 
-    def Activated(self):
+    def Activated(self, *_args):
         from . import viewer as viewer2d
         viewer2d.show_viewer().open_netlist_wizard()
 
@@ -102,7 +102,7 @@ class CommandReload(object):
         except Exception:
             return False
 
-    def Activated(self):
+    def Activated(self, *_args):
         from . import viewer as viewer2d
 
         try:
@@ -111,59 +111,6 @@ class CommandReload(object):
             App.Console.PrintError("KiCad footprint reload failed: %s\n" % exc)
             QtWidgets.QMessageBox.critical(
                 Gui.getMainWindow(), "KiCad footprint reload", str(exc))
-
-
-# ---------------------------------------------------------------------------
-class CommandView2D(object):
-    """Open or close the custom 2D footprint window."""
-
-    def GetResources(self):
-        return {
-            "Pixmap": _icon("Elec3D_Panel.svg"),
-            "MenuText": "Elec3D viewer",
-            "ToolTip": "Show or hide the Elec3D 2D/3D editor",
-            "Accel": "K, V",
-            "Checkable": False,
-        }
-
-    def IsActive(self):
-        return True
-
-    def Activated(self):
-        from . import viewer as viewer2d
-
-        if viewer2d.is_open():
-            viewer2d.hide_viewer()
-        else:
-            viewer2d.show_viewer()
-
-
-# ---------------------------------------------------------------------------
-class CommandFitView(object):
-    """Fit all currently loaded footprints in the custom 2D canvas."""
-
-    def GetResources(self):
-        return {
-            "Pixmap": _icon("Elec3D_View.svg"),
-            "MenuText": "Fit current view",
-            "ToolTip": "Fit the loaded board in the current 2D or 3D view",
-            "Accel": "K, 2",
-        }
-
-    def IsActive(self):
-        try:
-            from . import viewer as viewer2d
-
-            viewer = viewer2d.get_viewer(create=False)
-            return bool(viewer is not None and viewer._entries)
-        except Exception:
-            return False
-
-    def Activated(self):
-        from . import viewer as viewer2d
-
-        viewer = viewer2d.show_viewer()
-        viewer.canvas_fit()
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +127,7 @@ class CommandOptions(object):
     def IsActive(self):
         return True
 
-    def Activated(self):
+    def Activated(self, *_args):
         params = App.ParamGet(PREF_PATH)
         opts = get_options()
 
@@ -319,9 +266,7 @@ class CommandOptions(object):
 COMMANDS = (
     ("Elec3D_Import", CommandImport()),
     ("Elec3D_ImportNetlist", CommandImportNetlist()),
-    ("Elec3D_View2D", CommandView2D()),
     ("Elec3D_Reload", CommandReload()),
-    ("Elec3D_FitView", CommandFitView()),
     ("Elec3D_Options", CommandOptions()),
 )
 

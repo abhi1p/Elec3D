@@ -292,8 +292,9 @@ a paired view of the footprint session.
 
 Lifecycle:
 
-- Selecting the **Elec3D** workbench (or *Elec3D → Elec3D viewer*) opens the
-  editor as a tab or a separate window, per *Preferences*.
+- Selecting the **Elec3D** workbench opens the editor as a tab or a separate
+  window, per *Preferences*. The workbench adds no menu or toolbar to FreeCAD;
+  everything is in the editor's own File / Edit / Tools menus.
 - Once open it runs independently of FreeCAD's workflow: switching to Part
   Design or any other workbench, or between documents, never closes, hides or
   re-opens it.
@@ -302,7 +303,9 @@ Lifecycle:
   returns to the workbench you were using before; choosing another workbench
   while the Elec3D tab is in front brings your last FreeCAD document forward.
   A Separate Window is not coupled to workbenches.
-- Closing the tab or window ends the session. Unsaved changes ask Save /
+- Closing the tab or window ends the session and returns FreeCAD to the
+  workbench you were using before, so selecting Elec3D again reopens it.
+  Unsaved changes ask Save /
   Discard / Cancel first (Cancel keeps it open); otherwise the editor and its
   whole in-memory design are released. Opening it again starts empty — reopen
   your project from *File → Open Recent*.

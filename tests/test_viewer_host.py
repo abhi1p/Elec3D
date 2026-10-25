@@ -559,6 +559,23 @@ class TestSeparateWindowMode(unittest.TestCase):
         self.assertFalse(viewer2d.is_open())
         self.assertIsNone(viewer2d.get_viewer(create=False))
 
+    def test_closing_the_window_returns_to_the_previous_workbench(self):
+        bench = _WorkbenchStub("PartDesignWorkbench")
+        try:
+            bench.activate(viewer2d.ELEC3D_WORKBENCH)
+            _pump()
+            viewer = viewer2d.get_viewer(create=False)
+            self.assertTrue(viewer.isWindow())
+            viewer.confirm_save_or_discard = lambda *_a: True
+            viewer.close()
+            _settle()
+            self.assertFalse(viewer2d.is_open())
+            # No Elec3D menu exists to reopen the editor, so FreeCAD must not
+            # be left on an empty Elec3D workbench.
+            self.assertEqual(bench.name, "PartDesignWorkbench")
+        finally:
+            bench.remove()
+
     def test_cancelled_window_close_keeps_the_window(self):
         viewer = viewer2d.show_viewer()
         _pump()
