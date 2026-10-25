@@ -133,6 +133,16 @@ def setUpModule():
     viewer2d = _viewer_module
 
 
+def _settle(ms=400):
+    """Let deferred (timer-based) workbench sync run, like a real event loop."""
+    import time
+    end = time.time() + ms / 1000.0
+    while time.time() < end:
+        _app.processEvents()
+        time.sleep(0.01)
+    _pump()
+
+
 def _pump():
     _app.processEvents()
     _app.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
@@ -382,28 +392,47 @@ class TestViewerHosting(unittest.TestCase):
             doc = [w for w in self.mdi.subWindowList() if w is not tab][0]
 
             self.mdi.setActiveSubWindow(doc)     # leave the Elec3D tab
-            _pump(); _pump()
+            _settle()
             # Part Design was already active, so nothing changes here.
             self.assertEqual(state["name"], "PartDesignWorkbench")
 
             self.mdi.setActiveSubWindow(tab)     # enter the Elec3D tab
-            _pump(); _pump()
+            _settle()
             self.assertEqual(state["name"], viewer2d.ELEC3D_WORKBENCH)
             self.assertEqual(self.visible_panels(), [])
 
             self.mdi.setActiveSubWindow(doc)     # back to the FreeCAD document
-            _pump(); _pump()
+            _settle()
             self.assertEqual(state["name"], "PartDesignWorkbench")
             self.assertEqual(self.visible_panels(), ["Model", "OverlayLeft", "Tasks"])
 
             self.mdi.setActiveSubWindow(tab)
-            _pump(); _pump()
+            _settle()
             viewer2d.close_viewer()             # closing the tab also hands it back
-            _pump(); _pump()
+            _settle()
             self.assertEqual(state["name"], "PartDesignWorkbench")
         finally:
             del FreeCADGui.activeWorkbench
             del FreeCADGui.activateWorkbench
+
+    def test_choosing_another_workbench_on_the_tab_brings_back_the_document(self):
+        stub = _WorkbenchStub("PartWorkbench")
+        try:
+            tab = viewer2d._subwindow
+            doc = [w for w in self.mdi.subWindowList() if w is not tab][0]
+            self.mdi.setActiveSubWindow(doc)
+            _settle()
+            self.mdi.setActiveSubWindow(tab)              # Part -> Elec3D
+            _settle()
+            self.assertEqual(stub.name, viewer2d.ELEC3D_WORKBENCH)
+
+            stub.activate("PartWorkbench")                # selector, on the tab
+            _settle()
+            self.assertIs(self.mdi.activeSubWindow(), doc)
+            self.assertEqual(stub.name, "PartWorkbench")
+            self.assertTrue(viewer2d.is_open())           # the tab itself stays open
+        finally:
+            stub.remove()
 
     def test_host_change_request_is_deferred_out_of_click_stack(self):
         import FreeCAD
@@ -540,25 +569,20 @@ class TestSeparateWindowMode(unittest.TestCase):
         self.assertIs(viewer2d.get_viewer(create=False), viewer)
         del viewer.confirm_save_or_discard
 
-    def test_workbench_follows_the_focused_window(self):
+    def test_separate_window_is_not_coupled_to_workbenches(self):
         stub = _WorkbenchStub("PartDesignWorkbench")
         try:
             viewer = viewer2d.show_viewer()
             _pump()
-            viewer2d._on_focus_changed(None, viewer.canvas)       # into Elec3D window
-            _pump(); _pump()
-            self.assertEqual(stub.name, viewer2d.ELEC3D_WORKBENCH)
-
-            box = QtWidgets.QMessageBox()                         # unrelated dialog
-            viewer2d._on_focus_changed(None, box)
-            _pump(); _pump()
-            self.assertEqual(stub.name, viewer2d.ELEC3D_WORKBENCH)
-
-            doc = _main.findChild(QtWidgets.QMdiArea).subWindowList()[0]
-            viewer2d._on_focus_changed(viewer.canvas, doc.widget())  # back to FreeCAD
-            _pump(); _pump()
+            viewer.canvas.setFocus()
+            viewer.activateWindow()
+            _settle()
             self.assertEqual(stub.name, "PartDesignWorkbench")
-            box.deleteLater()
+            stub.activate("PartWorkbench")          # user picks another workbench
+            _settle()
+            self.assertTrue(viewer2d.is_open())
+            self.assertTrue(viewer.isVisible())
+            self.assertEqual(stub.name, "PartWorkbench")
         finally:
             stub.remove()
 

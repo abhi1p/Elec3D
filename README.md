@@ -277,10 +277,11 @@ Lifecycle:
 - Once open it runs independently of FreeCAD's workflow: switching to Part
   Design or any other workbench, or between documents, never closes, hides or
   re-opens it.
-- The workbench follows the editor: entering the Elec3D tab (or focusing the
-  Elec3D window in Separate Window mode) activates the Elec3D workbench, and
-  going back to a FreeCAD document (or closing the editor) returns to the
-  workbench you were using before.
+- Tab mode pairs the tab with the workbench: entering the Elec3D tab activates
+  the Elec3D workbench; going back to a FreeCAD document (or closing the tab)
+  returns to the workbench you were using before; choosing another workbench
+  while the Elec3D tab is in front brings your last FreeCAD document forward.
+  A Separate Window is not coupled to workbenches.
 - Closing the tab or window ends the session. Unsaved changes ask Save /
   Discard / Cancel first (Cancel keeps it open); otherwise the editor and its
   whole in-memory design are released. Opening it again starts empty — reopen

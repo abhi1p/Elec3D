@@ -4,6 +4,18 @@ Release history for **Elec3D — FreeCAD 1.1 addon**.
 
 Newest releases are listed first.
 
+## 0.18.2
+
+- **Fixed: the workbench did not always follow the Elec3D tab.** Switching
+  reacted to every transient tab activation FreeCAD/Qt emits while focus moves,
+  and those could undo the switch. The workbench is now paired with the tab
+  that has settled in front.
+- **Tab and workbench stay paired both ways.** Choosing another workbench while
+  the Elec3D tab is in front brings your last FreeCAD document back to the
+  front, so a FreeCAD workbench is never left driving the Elec3D tab.
+- **Separate Window mode is no longer coupled to workbenches** (reverts the
+  0.18.1 focus-following): the window runs alongside whatever workbench you use.
+
 ## 0.18.1
 
 - **The workbench now also follows the editor in Separate Window mode.**

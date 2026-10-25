@@ -43,7 +43,6 @@ _main_close_filter = None
 # activates the Elec3D workbench, leaving it restores the workbench that was
 # active before (tracked by :mod:`wbtrack`).
 ELEC3D_WORKBENCH = wbtrack.ELEC3D_WORKBENCH
-_workbench_switch_pending = False
 
 SIZE_IGNORED = enum(QtWidgets.QSizePolicy, "Policy", "Ignored")
 WINDOW_MINIMIZED = enum(Qt, "WindowState", "WindowMinimized")
@@ -272,109 +271,150 @@ def _elec3d_workbench_active():
     return name is None or name == ELEC3D_WORKBENCH
 
 
-def _activate_workbench_later(name):
-    """Switch FreeCAD's workbench on the next event turn (never re-entrantly)."""
-    global _workbench_switch_pending
-    if not name or _workbench_switch_pending:
+_last_document_subwindow = None
+_switching_workbench = False
+_sync_scheduled = False
+_choice_scheduled = False
+SETTLE_MS = 40          # let Qt/FreeCAD focus and activation churn settle first
+
+
+def _switch_workbench(name):
+    """Activate *name*, marking the switch as ours so listeners ignore it."""
+    global _switching_workbench
+    if not name or _active_workbench_name() == name:
         return
-    _workbench_switch_pending = True
+    _switching_workbench = True
+    try:
+        import FreeCADGui as Gui
 
-    def switch():
-        global _workbench_switch_pending
-        _workbench_switch_pending = False
-        if _active_workbench_name() == name:
-            return
-        try:
-            import FreeCADGui as Gui
-
-            Gui.activateWorkbench(name)
-        except Exception as exc:
-            App.Console.PrintWarning("Elec3D: could not switch to workbench %s: %s\n"
-                                     % (name, exc))
-
-    QtCore.QTimer.singleShot(0, switch)
+        App.Console.PrintLog("Elec3D: switching workbench to %s\n" % name)
+        Gui.activateWorkbench(name)
+    except Exception as exc:
+        App.Console.PrintWarning("Elec3D: could not switch to workbench %s: %s\n"
+                                 % (name, exc))
+    finally:
+        # FreeCAD may report the activation slightly after it returns.
+        QtCore.QTimer.singleShot(SETTLE_MS * 3, _end_switch)
 
 
-def _enter_elec3d_tab():
-    """The Elec3D tab became active: bring its workbench along."""
+def _end_switch():
+    global _switching_workbench
+    _switching_workbench = False
+
+
+def _tab_mode_open():
+    return _alive(_subwindow) and isinstance(_subwindow, QtWidgets.QMdiSubWindow)
+
+
+def _active_tab_area():
+    area = _subwindow.mdiArea() if _tab_mode_open() else None
+    return area or _mdi_area()
+
+
+def _tab_is_active():
+    if not _tab_mode_open():
+        return False
+    area = _active_tab_area()
+    try:
+        return area is not None and area.activeSubWindow() is _subwindow
+    except RuntimeError:
+        return False
+
+
+def _schedule_workbench_sync():
+    global _sync_scheduled
+    if not _sync_scheduled:
+        _sync_scheduled = True
+        QtCore.QTimer.singleShot(SETTLE_MS, _sync_workbench_with_tab)
+
+
+def _sync_workbench_with_tab():
+    """Pair the workbench with whichever MDI tab has *settled* in front.
+
+    Decisions are taken from the final active sub-window rather than from each
+    activation signal: FreeCAD/Qt can emit transient activations while focus
+    moves (e.g. during a toolbar rebuild), and reacting to those flipped the
+    workbench back and forth.
+    """
+    global _sync_scheduled, _last_document_subwindow
+    _sync_scheduled = False
+    if not _tab_mode_open():
+        return
+    if _switching_workbench:
+        _schedule_workbench_sync()      # re-check once our own switch is done
+        return
+    area = _active_tab_area()
+    try:
+        active = area.activeSubWindow() if area is not None else None
+    except RuntimeError:
+        return
     current = _active_workbench_name()
-    if current is None or current == ELEC3D_WORKBENCH:
+    if current is None:
         return
-    wbtrack.on_activated(current)
-    _activate_workbench_later(ELEC3D_WORKBENCH)
+    if active is _subwindow:
+        if current != ELEC3D_WORKBENCH:
+            wbtrack.remember(current)
+            _switch_workbench(ELEC3D_WORKBENCH)
+        else:
+            hide_panels()
+    elif active is not None:
+        _last_document_subwindow = active
+        restore_panels()
+        previous = wbtrack.last_other()
+        if current == ELEC3D_WORKBENCH and previous:
+            _switch_workbench(previous)
 
 
 def _leave_elec3d_tab():
-    """Another document became active: hand back the previous workbench."""
+    """The Elec3D tab is going away: hand back the previous workbench."""
     previous = wbtrack.last_other()
     if previous and _active_workbench_name() == ELEC3D_WORKBENCH:
-        _activate_workbench_later(previous)
+        QtCore.QTimer.singleShot(0, lambda: _switch_workbench(previous))
 
 
-def _belongs_to_viewer(widget):
-    """True for the Elec3D window itself and dialogs/popups it owns."""
-    viewer = _viewer
-    while widget is not None:
-        if widget is viewer:
-            return True
-        try:
-            widget = widget.parentWidget()
-        except RuntimeError:
-            return False
-    return False
+def _on_workbench_activated(name):
+    """The user chose another workbench while the Elec3D tab is in front.
 
-
-def _on_focus_changed(_old, new):
-    """Separate Window mode: the workbench follows the focused window.
-
-    Focusing the Elec3D window activates the Elec3D workbench; focusing
-    FreeCAD's main window (any document tab) returns to the previous
-    workbench.  Other top-levels (message boxes, file dialogs) are ignored.
+    A FreeCAD workbench cannot act on the Elec3D tab, so the last FreeCAD
+    document is brought back to the front instead (tab mode only).
     """
-    if new is None or _window_mode() != "window":
+    global _choice_scheduled
+    name = str(name or "")
+    if (not name or name == ELEC3D_WORKBENCH or _switching_workbench
+            or _choice_scheduled or not _tab_is_active()):
         return
-    viewer = _viewer
-    if not (_alive(viewer) and _alive(_subwindow)) or isinstance(_subwindow, QtWidgets.QMdiSubWindow):
-        return
-    try:
-        window = new.window()
-    except RuntimeError:
-        return
-    if _belongs_to_viewer(window) or _belongs_to_viewer(new):
-        _enter_elec3d_tab()
-    elif window is _main_window():
-        _leave_elec3d_tab()
+    _choice_scheduled = True
 
+    def show_document():
+        global _choice_scheduled
+        _choice_scheduled = False
+        if _switching_workbench or not _tab_is_active():
+            return
+        if _active_workbench_name() in (None, ELEC3D_WORKBENCH):
+            return
+        target = _last_document_subwindow
+        area = _active_tab_area()
+        if not (_alive(target) and area is not None):
+            return
+        try:
+            if target in area.subWindowList():
+                area.setActiveSubWindow(target)
+        except RuntimeError:
+            pass
 
-_focus_hooked = False
-
-
-def _hook_focus():
-    global _focus_hooked
-    if _focus_hooked:
-        return
-    app = QtWidgets.QApplication.instance()
-    if app is None:
-        return
-    try:
-        app.focusChanged.connect(_on_focus_changed)
-        _focus_hooked = True
-    except Exception:
-        pass
+    QtCore.QTimer.singleShot(SETTLE_MS, show_document)
 
 
 def _on_subwindow_activated(sub):
-    ours = sub is not None and _alive(_subwindow) and sub is _subwindow
-    if ours and isinstance(_subwindow, QtWidgets.QMdiSubWindow):
-        _enter_elec3d_tab()
-    elif sub is not None and _alive(_subwindow) and isinstance(_subwindow, QtWidgets.QMdiSubWindow):
-        _leave_elec3d_tab()
-    # Model/Tasks are hidden only while Elec3D itself is the active workbench;
-    # Workbench.Activated() hides them once the switch above has happened.
-    if ours and _elec3d_workbench_active():
-        hide_panels()
-    elif not ours:
+    global _last_document_subwindow
+    if not _tab_mode_open():
+        return
+    if sub is not None and sub is not _subwindow:
+        _last_document_subwindow = sub
         restore_panels()
+    elif sub is _subwindow and _elec3d_workbench_active():
+        hide_panels()
+    _schedule_workbench_sync()
 
 
 def _hook_mdi():
@@ -507,7 +547,7 @@ def get_viewer(create=True, theme=None):
         _viewer.close_handler = _on_window_close_requested
         _hook_main_close_guard()
         _hook_quit()
-        _hook_focus()
+        wbtrack.add_listener(_on_workbench_activated)
     return _viewer
 
 
@@ -863,7 +903,6 @@ def _rebuild_viewer_in_host(mode):
     _viewer.hostActionRequested.connect(_on_host_action)
     _viewer.close_handler = _on_window_close_requested
     _hook_main_close_guard()
-    _hook_focus()
     _restore_viewer_state(_viewer, state, restore_view=False)
     viewer = _host_viewer(mode)
 
